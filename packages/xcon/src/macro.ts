@@ -12,7 +12,22 @@ export interface ExpandOptions {
   initialContext?: MacroContext;
   strict?: boolean;
   maxDepth?: number;
+  /**
+   * Allowlist for `%_ENV(VAR)`. Default: empty array (no env access).
+   * Pass `'*'` to allow all environment variables (NOT recommended for untrusted input).
+   */
+  envAllowlist?: string[] | '*';
 }
+
+const BUILTIN_NAMES = new Set([
+  '_DATE_STR',
+  '_TIME_STR',
+  '_DATETIME_STR',
+  '_TIMESTAMP',
+  '_DAY_STR',
+  '_UUID',
+  '_ENV',
+]);
 
 enum ExprTokenType {
   NUMBER = 'NUMBER',
@@ -33,6 +48,7 @@ interface ExprToken {
 
 class ExprEvaluator {
   private tokens: ExprToken[] = [];
+
   private pos = 0;
 
   evaluate(expr: string, line: number, col: number): number {
@@ -52,49 +68,45 @@ class ExprEvaluator {
   private lexExpr(expr: string, line: number, col: number): ExprToken[] {
     const tokens: ExprToken[] = [];
     let i = 0;
-
     while (i < expr.length) {
       const ch = expr[i];
       if (ch === undefined) break;
-
       if (/\s/.test(ch)) {
         i++;
         continue;
       }
-
-      if (ch === '+') {
-        tokens.push({ type: ExprTokenType.PLUS, value: '+' });
-        i++;
-      } else if (ch === '-') {
-        tokens.push({ type: ExprTokenType.MINUS, value: '-' });
-        i++;
-      } else if (ch === '*') {
-        tokens.push({ type: ExprTokenType.STAR, value: '*' });
-        i++;
-      } else if (ch === '/') {
-        tokens.push({ type: ExprTokenType.SLASH, value: '/' });
-        i++;
-      } else if (ch === '%') {
-        tokens.push({ type: ExprTokenType.PERCENT, value: '%' });
-        i++;
-      } else if (ch === '(') {
-        tokens.push({ type: ExprTokenType.LPAREN, value: '(' });
-        i++;
-      } else if (ch === ')') {
-        tokens.push({ type: ExprTokenType.RPAREN, value: ')' });
-        i++;
-      } else if (/\d/.test(ch) || (ch === '.' && i + 1 < expr.length && /\d/.test(expr[i + 1] || ''))) {
+      if (ch === '+') tokens.push({ type: ExprTokenType.PLUS, value: '+' });
+      else if (ch === '-') tokens.push({ type: ExprTokenType.MINUS, value: '-' });
+      else if (ch === '*') tokens.push({ type: ExprTokenType.STAR, value: '*' });
+      else if (ch === '/') tokens.push({ type: ExprTokenType.SLASH, value: '/' });
+      else if (ch === '%') tokens.push({ type: ExprTokenType.PERCENT, value: '%' });
+      else if (ch === '(') tokens.push({ type: ExprTokenType.LPAREN, value: '(' });
+      else if (ch === ')') tokens.push({ type: ExprTokenType.RPAREN, value: ')' });
+      else if (
+        /\d/.test(ch) ||
+        (ch === '.' && i + 1 < expr.length && /\d/.test(expr[i + 1] || ''))
+      ) {
         let numStr = '';
-        while (i < expr.length && (/\d/.test(expr[i] || '') || expr[i] === '.')) {
+        let dotSeen = false;
+        while (
+          i < expr.length &&
+          (/\d/.test(expr[i] || '') || (expr[i] === '.' && !dotSeen))
+        ) {
+          if (expr[i] === '.') dotSeen = true;
           numStr += expr[i];
           i++;
         }
         tokens.push({ type: ExprTokenType.NUMBER, value: numStr });
+        continue;
       } else {
-        throw new XCONMacroError(`Unexpected character in expression: '${ch}'`, line, col);
+        throw new XCONMacroError(
+          `Unexpected character in expression: '${ch}'`,
+          line,
+          col,
+        );
       }
+      i++;
     }
-
     tokens.push({ type: ExprTokenType.EOF, value: '' });
     return tokens;
   }
@@ -111,18 +123,13 @@ class ExprEvaluator {
   private expect(type: ExprTokenType, line: number, col: number): ExprToken {
     const token = this.current();
     if (token.type !== type) {
-      throw new XCONMacroError(
-        `Expected ${type} but got ${token.type}`,
-        line,
-        col,
-      );
+      throw new XCONMacroError(`Expected ${type} but got ${token.type}`, line, col);
     }
     return this.advance();
   }
 
   private parseAddExpr(line: number, col: number): number {
     let left = this.parseMulExpr(line, col);
-
     while (
       this.current().type === ExprTokenType.PLUS ||
       this.current().type === ExprTokenType.MINUS
@@ -131,13 +138,11 @@ class ExprEvaluator {
       const right = this.parseMulExpr(line, col);
       left = op.type === ExprTokenType.PLUS ? left + right : left - right;
     }
-
     return left;
   }
 
   private parseMulExpr(line: number, col: number): number {
     let left = this.parseUnary(line, col);
-
     while (
       this.current().type === ExprTokenType.STAR ||
       this.current().type === ExprTokenType.SLASH ||
@@ -145,22 +150,15 @@ class ExprEvaluator {
     ) {
       const op = this.advance();
       const right = this.parseUnary(line, col);
-
-      if (op.type === ExprTokenType.STAR) {
-        left = left * right;
-      } else if (op.type === ExprTokenType.SLASH) {
-        if (right === 0) {
-          throw new XCONMacroError('Division by zero in expression', line, col);
-        }
-        left = left / right;
+      if (op.type === ExprTokenType.STAR) left *= right;
+      else if (op.type === ExprTokenType.SLASH) {
+        if (right === 0) throw new XCONMacroError('Division by zero in expression', line, col);
+        left /= right;
       } else {
-        if (right === 0) {
-          throw new XCONMacroError('Modulo by zero in expression', line, col);
-        }
-        left = left % right;
+        if (right === 0) throw new XCONMacroError('Modulo by zero in expression', line, col);
+        left %= right;
       }
     }
-
     return left;
   }
 
@@ -174,17 +172,14 @@ class ExprEvaluator {
 
   private parsePrimary(line: number, col: number): number {
     if (this.current().type === ExprTokenType.NUMBER) {
-      const val = parseFloat(this.advance().value);
-      return val;
+      return parseFloat(this.advance().value);
     }
-
     if (this.current().type === ExprTokenType.LPAREN) {
       this.advance();
       const val = this.parseAddExpr(line, col);
       this.expect(ExprTokenType.RPAREN, line, col);
       return val;
     }
-
     throw new XCONMacroError(
       `Expected number or '(' in expression, got ${this.current().type}`,
       line,
@@ -193,11 +188,23 @@ class ExprEvaluator {
   }
 }
 
+interface ExpandState {
+  context: MacroContext;
+  strict: boolean;
+  maxDepth: number;
+  envAllowlist: Set<string> | 'all';
+}
+
 export function expand(input: string, options?: ExpandOptions): string {
-  const specMacros = buildSpecMacros();
-  const context: MacroContext = new Map([...specMacros, ...(options?.initialContext ?? [])]);
+  const context: MacroContext = new Map(options?.initialContext ?? []);
   const strict = options?.strict ?? true;
   const maxDepth = options?.maxDepth ?? 16;
+
+  let envAllowlist: Set<string> | 'all';
+  if (options?.envAllowlist === '*') envAllowlist = 'all';
+  else envAllowlist = new Set(options?.envAllowlist ?? []);
+
+  const state: ExpandState = { context, strict, maxDepth, envAllowlist };
 
   const lines = input.split('\n');
   const outputLines: string[] = [];
@@ -230,88 +237,175 @@ export function expand(input: string, options?: ExpandOptions): string {
         sourceLine: lineNum,
       });
     } else {
-      const expanded = expandLine(
-        line,
-        context,
-        strict,
-        maxDepth,
-        lineNum,
-        0,
-      );
+      const expanded = expandLine(line, state, lineNum, 0);
       outputLines.push(expanded);
     }
   }
 
   let result = outputLines.join('\n');
-  if (trailingNewline) {
-    result += '\n';
-  }
+  if (trailingNewline) result += '\n';
   return result;
 }
 
 function decodeEscapes(s: string): string {
-  return s
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, '\\')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t');
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '\\' && i + 1 < s.length) {
+      const next = s[i + 1];
+      if (next === '"') out += '"';
+      else if (next === '\\') out += '\\';
+      else if (next === 'n') out += '\n';
+      else if (next === 't') out += '\t';
+      else out += next || '';
+      i += 2;
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
 }
 
 function generateUUID(): string {
-  const chars = '0123456789abcdef';
-  let uuid = '';
-  for (let i = 0; i < 36; i++) {
-    if (i === 8 || i === 13 || i === 18 || i === 23) {
-      uuid += '-';
-    } else if (i === 14) {
-      uuid += '4';
-    } else if (i === 19) {
-      uuid += chars[Math.floor(Math.random() * 16) & 0x3 | 0x8];
-    } else {
-      uuid += chars[Math.floor(Math.random() * 16)];
-    }
+  // Prefer crypto.randomUUID when available (Node 19+, browsers)
+  const g: any = globalThis as any;
+  if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+    return g.crypto.randomUUID();
   }
-  return uuid;
+  const rand = (): number => {
+    if (g.crypto && typeof g.crypto.getRandomValues === 'function') {
+      const a = new Uint8Array(1);
+      g.crypto.getRandomValues(a);
+      return a[0]!;
+    }
+    return Math.floor(Math.random() * 256);
+  };
+  const bytes = new Array(16).fill(0).map(() => rand());
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function buildSpecMacros(): MacroContext {
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function expandBuiltin(name: string, args: string[] | null, allowlist: Set<string> | 'all'): string {
   const now = new Date();
+  if (name === '_DATE_STR') {
+    return now.toISOString().split('T')[0] || '';
+  }
+  if (name === '_TIME_STR') {
+    return `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}:${pad2(now.getUTCSeconds())}`;
+  }
+  if (name === '_DATETIME_STR') {
+    return now.toISOString();
+  }
+  if (name === '_TIMESTAMP') {
+    return String(Math.floor(now.getTime() / 1000));
+  }
+  if (name === '_DAY_STR') {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[now.getUTCDay()] || '';
+  }
+  if (name === '_UUID') {
+    return generateUUID();
+  }
+  if (name === '_ENV') {
+    const varName = args?.[0] ?? '';
+    if (varName === '') return '';
+    if (allowlist !== 'all' && !allowlist.has(varName)) return '';
+    const env: any = (globalThis as any).process?.env;
+    if (env && typeof env === 'object' && Object.prototype.hasOwnProperty.call(env, varName)) {
+      const v = env[varName];
+      return typeof v === 'string' ? v : '';
+    }
+    return '';
+  }
+  return '';
+}
 
-  const padZero = (n: number): string => String(n).padStart(2, '0');
+/**
+ * Find the matching close-paren for the open-paren at `openIdx` in `s`.
+ * Honors backslash-escaped parens.
+ */
+function findMatchingParen(s: string, openIdx: number): number {
+  let depth = 0;
+  for (let k = openIdx; k < s.length; k++) {
+    const ch = s[k];
+    if (ch === '\\' && k + 1 < s.length) {
+      k++;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) return k;
+    }
+  }
+  return -1;
+}
 
-  const dateStr: string = now.toISOString().split('T')[0] || '';
-  const timeStr: string = `${padZero(now.getHours())}:${padZero(now.getMinutes())}:${padZero(now.getSeconds())}`;
-  const datetimeStr: string = now.toISOString();
+/**
+ * Split a comma-separated argument string honoring nested parens/braces/brackets and escapes.
+ */
+function splitArgs(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (let k = 0; k < s.length; k++) {
+    const ch = s[k];
+    if (ch === '\\' && k + 1 < s.length) {
+      cur += ch + s[k + 1];
+      k++;
+      continue;
+    }
+    if (ch === '(' || ch === '{' || ch === '[') depth++;
+    else if (ch === ')' || ch === '}' || ch === ']') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur.trim());
+  // If the input was empty string, return empty list (no args).
+  if (parts.length === 1 && parts[0] === '') return [];
+  return parts;
+}
 
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const dayStr: string = days[now.getDay()] || 'Sunday';
-
-  const context: MacroContext = new Map();
-  context.set('_DATE_STR', { body: dateStr, params: null, sourceLine: 0 });
-  context.set('_TIMESTAMP', { body: String(Math.floor(now.getTime() / 1000)), params: null, sourceLine: 0 });
-  context.set('_DATETIME_STR', { body: datetimeStr, params: null, sourceLine: 0 });
-  context.set('_DAY_STR', { body: dayStr, params: null, sourceLine: 0 });
-  context.set('_TIME_STR', { body: timeStr, params: null, sourceLine: 0 });
-  context.set('_UUID', { body: generateUUID(), params: null, sourceLine: 0 });
-  context.set('_ENV', { body: '', params: ['VAR'], sourceLine: 0 });
-
-  return context;
+/**
+ * Substitute parameters into a body using a single-pass scan. Sorts param
+ * names by length descending so that prefix collisions don't corrupt longer
+ * placeholder names.
+ */
+function substituteParams(body: string, params: string[], args: string[]): string {
+  const paramMap = new Map<string, string>();
+  for (let k = 0; k < params.length; k++) {
+    paramMap.set(params[k]!, args[k] ?? '');
+  }
+  // Build a regex that matches any {param} placeholder, preferring longer names.
+  const sortedNames = [...paramMap.keys()].sort((a, b) => b.length - a.length);
+  if (sortedNames.length === 0) return body;
+  const pattern = new RegExp(
+    `\\{(${sortedNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\}`,
+    'g',
+  );
+  return body.replace(pattern, (_m, p1) => paramMap.get(p1) ?? '');
 }
 
 function expandLine(
   line: string,
-  context: MacroContext,
-  strict: boolean,
-  maxDepth: number,
+  state: ExpandState,
   lineNum: number,
   depth: number,
 ): string {
-  if (depth > maxDepth) {
-    throw new XCONMacroError(
-      'Macro expansion depth exceeded',
-      lineNum,
-      1,
-    );
+  if (depth > state.maxDepth) {
+    throw new XCONMacroError('Macro expansion depth exceeded', lineNum, 1);
   }
 
   let result = '';
@@ -328,69 +422,51 @@ function expandLine(
             i + 1,
           );
         }
-
         let exprStr = line.substring(i + 2, closeIdx);
-        exprStr = expandLine(
-          exprStr,
-          context,
-          strict,
-          maxDepth,
-          lineNum,
-          depth + 1,
-        );
-
+        exprStr = expandLine(exprStr, state, lineNum, depth + 1);
         const evaluator = new ExprEvaluator();
         const exprResult = evaluator.evaluate(exprStr, lineNum, i + 1);
         const stringified = Number.isInteger(exprResult)
-          ? String(Math.floor(exprResult))
+          ? String(Math.trunc(exprResult))
           : String(exprResult);
-
         result += stringified;
         i = closeIdx + 1;
-      } else {
-        const nameMatch = line.substring(i + 1).match(/^([a-zA-Z_][a-zA-Z0-9_]*)/);
-        if (!nameMatch) {
-          result += '%';
-          i++;
-          continue;
+        continue;
+      }
+
+      const nameMatch = line.substring(i + 1).match(/^([a-zA-Z_][a-zA-Z0-9_]*)/);
+      if (!nameMatch) {
+        result += '%';
+        i++;
+        continue;
+      }
+
+      const name = nameMatch[1] || '';
+      let nextIdx = i + 1 + name.length;
+      let args: string[] | null = null;
+
+      if (nextIdx < line.length && line[nextIdx] === '(') {
+        const closeParenIdx = findMatchingParen(line, nextIdx);
+        if (closeParenIdx === -1) {
+          throw new XCONMacroError(
+            `Unclosed parameter list for macro '${name}'`,
+            lineNum,
+            nextIdx + 1,
+            name,
+          );
         }
+        const argStr = line.substring(nextIdx + 1, closeParenIdx);
+        args = argStr.length > 0 ? splitArgs(argStr) : [];
+        // Recursively expand each argument
+        args = args.map((a) => expandLine(a, state, lineNum, depth + 1));
+        nextIdx = closeParenIdx + 1;
+      }
 
-        const name = nameMatch[1] || '';
-        let nextIdx = i + 1 + name.length;
-        let args: string[] | null = null;
+      // User-defined override takes precedence
+      const userDef = state.context.get(name);
 
-        if (nextIdx < line.length && line[nextIdx] === '(') {
-          const closeParenIdx = line.indexOf(')', nextIdx);
-          if (closeParenIdx === -1) {
-            throw new XCONMacroError(
-              `Unclosed parameter list for macro '${name}'`,
-              lineNum,
-              nextIdx + 1,
-            );
-          }
-
-          const argStr = line.substring(nextIdx + 1, closeParenIdx);
-          args = argStr.length > 0 ? argStr.split(',').map((a) => a.trim()) : [];
-          nextIdx = closeParenIdx + 1;
-        }
-
-        const def = context.get(name);
-
-        if (!def) {
-          if (strict) {
-            throw new XCONMacroError(
-              `Undefined macro '${name}'`,
-              lineNum,
-              i + 1,
-              name,
-            );
-          }
-          result += `%${name}${args ? `(${args.join(',')})` : ''}`;
-          i = nextIdx;
-          continue;
-        }
-
-        if (def.params === null && args && args.length > 0) {
+      if (userDef) {
+        if (userDef.params === null && args && args.length > 0) {
           throw new XCONMacroError(
             `Macro '${name}' takes no parameters, but ${args.length} provided`,
             lineNum,
@@ -398,9 +474,8 @@ function expandLine(
             name,
           );
         }
-
-        if (def.params !== null && (!args || args.length !== def.params.length)) {
-          const expected = def.params.length;
+        if (userDef.params !== null && (!args || args.length !== userDef.params.length)) {
+          const expected = userDef.params.length;
           const got = args?.length ?? 0;
           throw new XCONMacroError(
             `Macro '${name}' expects ${expected} arguments, got ${got}`,
@@ -409,43 +484,36 @@ function expandLine(
             name,
           );
         }
-
-        let substituted: string;
-
-        if (name === '_ENV' && args && args.length > 0) {
-          const envVarName = args[0] || '';
-          const processEnv = (globalThis as any).process?.env;
-          const envValue = (processEnv && typeof processEnv === 'object' && envVarName in processEnv) ? processEnv[envVarName] : '';
-          substituted = envValue || '';
-        } else {
-          let body = def.body;
-
-          if (def.params && args) {
-            for (let j = 0; j < def.params.length; j++) {
-              const placeholder = `{${def.params[j]}}`;
-              const argVal = args[j] || '';
-              body = body.replaceAll(placeholder, argVal);
-            }
-          }
-
-          substituted = expandLine(
-            body,
-            context,
-            strict,
-            maxDepth,
-            lineNum,
-            depth + 1,
-          );
+        let body = userDef.body;
+        if (userDef.params && args) {
+          body = substituteParams(body, userDef.params, args);
         }
-
-        result += substituted;
+        result += expandLine(body, state, lineNum, depth + 1);
         i = nextIdx;
+        continue;
       }
+
+      if (BUILTIN_NAMES.has(name)) {
+        result += expandBuiltin(name, args, state.envAllowlist);
+        i = nextIdx;
+        continue;
+      }
+
+      // Unknown macro
+      if (state.strict) {
+        throw new XCONMacroError(
+          `Undefined macro '${name}'`,
+          lineNum,
+          i + 1,
+          name,
+        );
+      }
+      result += `%${name}${args ? `(${args.join(',')})` : ''}`;
+      i = nextIdx;
     } else {
       result += line[i];
       i++;
     }
   }
-
   return result;
 }

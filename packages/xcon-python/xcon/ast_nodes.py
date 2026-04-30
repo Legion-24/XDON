@@ -1,95 +1,71 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Union, Any
+from dataclasses import dataclass, field
+from typing import List, Optional, Union
 
 
 @dataclass
 class LabelNode:
     """Header label definition."""
-    type: str = "Label"
     name: str = ""
     is_array: bool = False
-    children: List['LabelNode'] = None
-
-    def __post_init__(self) -> None:
-        if self.children is None:
-            self.children = []
+    children: List["LabelNode"] = field(default_factory=list)
+    type: str = "Label"
 
 
 @dataclass
 class HeaderNode:
     """Header section."""
+    labels: List[LabelNode] = field(default_factory=list)
     type: str = "Header"
-    labels: List[LabelNode] = None
-
-    def __post_init__(self) -> None:
-        if self.labels is None:
-            self.labels = []
 
 
 @dataclass
 class ValueNode:
     """Scalar value."""
-    type: str = "Value"
     raw: str = ""
+    quoted: bool = False
+    type: str = "Value"
 
 
 @dataclass
 class ArrayNode:
     """Array of values."""
+    items: List[Union["ValueNode", "DocumentNode", "ArrayNode"]] = field(default_factory=list)
     type: str = "Array"
-    items: List[Union['ValueNode', 'DocumentNode', 'ArrayNode']] = None
-
-    def __post_init__(self) -> None:
-        if self.items is None:
-            self.items = []
 
 
 @dataclass
 class DocumentNode:
     """Document with fields."""
+    fields: List[Union[ValueNode, "DocumentNode", ArrayNode]] = field(default_factory=list)
     type: str = "Document"
-    fields: List[Union[ValueNode, 'DocumentNode', ArrayNode]] = None
-
-    def __post_init__(self) -> None:
-        if self.fields is None:
-            self.fields = []
 
 
 @dataclass
 class RowNode:
     """Row with optional label and document."""
-    type: str = "Row"
     label: Optional[str] = None
-    document: DocumentNode = None
-
-    def __post_init__(self) -> None:
-        if self.document is None:
-            self.document = DocumentNode()
+    label_line: int = 0
+    label_column: int = 0
+    document: DocumentNode = field(default_factory=DocumentNode)
+    type: str = "Row"
 
 
 @dataclass
 class BodyNode:
     """Body with rows."""
+    rows: List[RowNode] = field(default_factory=list)
     type: str = "Body"
-    rows: List[RowNode] = None
-
-    def __post_init__(self) -> None:
-        if self.rows is None:
-            self.rows = []
 
 
 @dataclass
 class XCONDocument:
     """Complete XCON document."""
-    type: str = "XCONDocument"
     header: Optional[HeaderNode] = None
-    body: BodyNode = None
-
-    def __post_init__(self) -> None:
-        if self.body is None:
-            self.body = BodyNode()
+    body: BodyNode = field(default_factory=BodyNode)
+    version_directive: Optional[str] = None
+    type: str = "XCONDocument"
 
 
 # Type alias for field values

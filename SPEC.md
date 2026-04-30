@@ -1,548 +1,375 @@
-# XCON Specification v0.1.0
+# XCON Specification v1.0.0
 
 ## Overview
 
-**XCON** (eXtensible Compact Object Notation) is a schema-ambient structured data format. It declares the schema once and carries only values in the body, producing payloads 30–40% smaller than JSON as text and up to 72% smaller in binary (BXCON).
+**XCON** (eXtensible Compact Object Notation) is a schema-ambient structured data format. The schema is declared once in a header, and the body carries only values, producing payloads typically 30–40% smaller than equivalent JSON text.
 
-This document specifies the **XCON/text** layer — the human-readable text format. The full XCON stack also includes:
+This document defines **XCON v1.0.0**, the stable text format. v1.0.0 is **frozen** — conforming parsers will continue to accept v1.0.0 documents indefinitely. Future evolution happens through the reserved-character namespace (see [Extensibility](#extensibility-and-reserved-characters)) and through optional version directives (see [Version Directive](#version-directive)).
 
-- **BXCON** — binary wire encoding (replaces BSON, Protobuf, MessagePack)
-- **XCON/schema** — schema declaration and versioning (replaces JSON Schema, Avro)
-- **XCON/macros** — declarative decorator macros (`@ref`, `@lazy`, `@fn`, `@sql`, `@rest`, `@cache`, `@macro`) with cross-language callback bindings
-- **XCON/stream** — streaming protocol with row-label out-of-order reassembly
-- **XCON/lazy** — deferred field expansion via `@ref` and `@lazy`
-- **XCON/fed** — federated cross-server queries via macro composition
+The XCON family also includes additional layers that are **not part of v1.0** and will be specified separately as they stabilize:
 
-See [README.md](./README.md) for the full layer-replacement table and [MACROS.md](./MACROS.md) for decorator macro semantics.
+- **BXCON** — binary wire encoding *(planned)*
+- **XCON/schema** — schema declaration and validation *(planned)*
+- **XCON/decorators** — decorator macros (`@ref`, `@lazy`, etc.) *(planned)*
+- **XCON/stream** — streaming protocol *(planned)*
+
+These layers are out of scope for v1.0.0. v1.0.0 specifies only the text format and the `%`-prefixed text-preprocessing macro layer.
 
 ### Design Goals
 
-- **Schema ambience**: declare structure once (header), repeat only values (rows)
-- **Compactness**: 30–40% smaller than JSON in text; up to 72% smaller in BXCON
-- **Round-trippable**: lossless conversion to/from JSON
-- **Simple grammar**: no complex escaping, minimal special syntax — easy to read, easy to generate
-- **Universal applicability**: REST payloads, SQL result sets, LLM contexts, MCP, document storage, server-driven UI
-
-### Motivation
-
-JSON repeats keys for every object in an array. XCON declares the schema once and repeats only values. For an array of 100 user objects with 5 keys each, XCON saves ~60% of JSON's structural overhead — and with BXCON, additional savings come from typed-tag encoding instead of UTF-8 text.
+- **Schema ambience** — declare structure once, repeat only values.
+- **Compactness** — significantly fewer tokens and bytes than JSON for tabular data.
+- **Round-trippable with JSON** — for the supported value types, `toJSON(parse(x))` is well-defined and total.
+- **Simple grammar** — recursive-descent parsable in a few hundred lines.
+- **Stable and extensible** — v1.0 reserves a character namespace so future versions can add syntax without breaking v1.0 documents.
 
 ---
 
-## Macros (Text Preprocessing)
+## Encoding
 
-XCON supports an optional **macro pre-processor** that runs before parsing. Macros allow you to define reusable text fragments, parameterized templates, and inline arithmetic expressions, reducing repetition and enabling dynamic XCON generation.
+XCON documents **MUST** be encoded in **UTF-8**. A leading UTF-8 byte-order mark (BOM, `EF BB BF`) **MAY** be present and **MUST** be skipped by parsers; it is not part of the document content.
 
-**Note:** Macro expansion is a preprocessing step. Call `expand(input)` before `parse(expanded)` to use macros.
-
-### Simple Variable Macros
-
-Define a reusable text fragment on its own line, consumed during expansion:
-
-```
-%header = "(id,name,email)"
-%admin = "true"
-
-%header
-emp1:{1,Alice,alice@example.com,{admin}}
-```
-
-Expands to:
-```
-(id,name,email)
-emp1:{1,Alice,alice@example.com,true}
-```
-
-### Parameterized Macros
-
-Define a template with placeholders:
-
-```
-%row(id,name,email) = "{id,name,email}"
-
-data:%row(1,Alice,alice@example.com)
-```
-
-Expands to:
-```
-data:{1,Alice,alice@example.com}
-```
-
-Placeholders use `{param}` syntax and can be repeated or omitted (unused parameters are ignored).
-
-### Expression Macros
-
-Inline arithmetic expressions are evaluated safely:
-
-```
-%{2+3*4}      → 14
-%{10/2}       → 5
-%{10/4}       → 2.5
-```
-
-Integer results are displayed without decimals; float results show all significant digits. Operators are `+`, `-`, `*`, `/`, `%` (modulo) with standard precedence and support for parentheses and unary minus.
-
-**Expressions can reference macros:**
-
-```
-%n = "5"
-value:%{%n+1}  → value:6
-```
-
-### Spec-Defined Macros
-
-Built-in macros prefixed with `_` are always available:
-
-| Macro | Returns | Example |
-|-------|---------|---------|
-| `%_DATE_STR` | ISO 8601 date (YYYY-MM-DD) | `2026-04-30` |
-| `%_TIME_STR` | Time in HH:MM:SS | `14:35:22` |
-| `%_DATETIME_STR` | Full ISO 8601 datetime | `2026-04-30T14:35:22Z` |
-| `%_TIMESTAMP` | Unix timestamp (seconds) | `1746057322` |
-| `%_DAY_STR` | Day of week | `Wednesday` |
-| `%_UUID` | UUID v4 | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
-| `%_ENV(VAR)` | Environment variable | `%_ENV(HOME)` expands to env var value |
-
-**Note:** Spec macros are evaluated at expansion time (not at parse time), so each invocation captures the current datetime or a freshly generated UUID.
-
-### Macro Rules
-
-1. **Definition line syntax:**
-   - Simple: `%name = "body"`
-   - Parameterized: `%name(p1,p2) = "body with {p1} and {p2}"`
-   - Definition lines are consumed during expansion (not in output)
-
-2. **Visibility:** Macros are only visible after their definition line. Pre-defined context (`initialContext`) is always visible from line 1.
-
-3. **Nesting:** Macro expansions are re-expanded, enabling macro-refs-macro patterns. Depth is limited to 16 to prevent circular references.
-
-4. **Forward references:** Referencing a macro before it's defined throws an error (unless `strict: false`).
-
-5. **Undefined macros:** Unknown macros throw an error in strict mode; in non-strict mode they are left as-is for later processing.
-
-6. **Circular detection:** If macro A references B and B references A, expansion throws an error.
+Other encodings are out of scope for v1.0.
 
 ---
 
 ## Format Structure
 
-An XCON document consists of two optional parts:
+An XCON document consists of:
 
-1. **Header** (optional): First line defining the structure of all rows
-2. **Body** (required): Rows of data following the header schema
+1. An **optional header** declaring the schema for all rows.
+2. A **body** of zero or more rows.
 
 ```
-HEADER
-BODY_ROW
-BODY_ROW
+[HEADER]
+ROW
+ROW
 ...
 ```
 
+A document with no rows is valid; it parses to an empty array `[]` (no header) or empty object `{}` (header present).
+
 ---
 
-## Header Syntax
+## Header
 
-The header defines the schema for all documents in the body. It is optional.
-
-### Format
+The header is a parenthesized comma-separated list of labels, terminated by a newline:
 
 ```
-(label,label,label,...)
+(label,label,label)
 ```
 
-- Starts with `(`
-- Comma-separated list of **labels**
-- Ends with `)`
-- Must be the first non-empty line of the document
+- Begins with `(`, ends with `)`.
+- Must occupy a single logical line (line continuations are not supported in v1.0).
+- If present, must be the first non-empty, non-directive line of the document.
+- A document with no header has no shared schema; rows produce arrays-of-values.
 
 ### Labels
 
-A **label** is a field name. Labels may be:
+A **label** is a field name with optional decorations:
 
-- **Bare**: `name` (letters, digits, underscore; no spaces)
-- **Quoted**: `"first name"` or `'full-name-with-dashes'` (if containing spaces, delimiters, or special chars)
-- **Array marker**: Suffix `[]` indicates the field is an array: `tags[]`
-- **Nested**: Suffix `(sub_label,...)` indicates nested structure: `address:(city,zip)`
+| Form | Example | Meaning |
+|------|---------|---------|
+| Bare name | `name` | Identifier matching `[A-Za-z_][A-Za-z0-9_]*` |
+| Quoted name | `"first name"`, `'full-name'` | Allows spaces and most other characters |
+| Array marker | `tags[]` | Field value is an array |
+| Nested schema | `address:(city,zip)` | Field value is a nested document with the inner schema |
+| Nested array of objects | `addrs[]:(city,zip)` | Field value is an array of nested documents |
 
-### Escape Sequences in Labels
+Quoted labels follow the same quoting and escape rules as quoted scalar values (see [Quoted Strings](#quoted-strings)).
 
-Inside quoted labels, use backslash to escape:
-- `\"` → quote character
-- `\\` → backslash
-- `\n` → newline
-- `\t` → tab
+The colon `:` between a label and its nested schema is **part of the header grammar only** and does not appear in row syntax.
 
 ### Examples
 
-**Simple header**:
 ```
 (name,age,active)
-```
-
-**With arrays**:
-```
-(name,tags[],favorites[])
-```
-
-**With nested schema**:
-```
+(name,tags[])
 (name,address:(street,city,zip))
-```
-
-**Complex nested**:
-```
-(id,name,tags[],address:(city,zip),metadata:(created,updated))
+(id,addrs[]:(city,zip),metadata:(created,updated))
 ```
 
 ---
 
-## Body Syntax
+## Body
 
-The body contains rows of data. Each row is optional in structure but at least one row is recommended.
+The body is a sequence of rows separated by newlines. Each row is one of:
 
-### Row Format
+- An **unlabeled row**: `{...}`
+- A **labeled row**: `label:{...}`, where `label` is a bare or quoted identifier.
 
-```
-[row_label:] document
-```
-
-- **row_label** (optional): Identifier preceding the colon. If present, becomes the key in output. If absent, document is positional.
-- **document**: A `{}` block containing field values
+A document **MUST NOT** mix labeled and unlabeled rows. All rows must be the same kind.
 
 ### Documents
 
-A document is a comma-separated list of field values enclosed in braces.
+A `{...}` block is called a **document**. It contains zero or more comma-separated **field values**:
 
 ```
-{value,value,value,...}
+{}                             // empty
+{value}                        // one field
+{value1,value2,value3}         // three fields
+{value,{nested},[array]}       // mixed
 ```
 
-- Starts with `{`
-- Contains zero or more **field values** separated by commas
-- Ends with `}`
-- Field values are matched **positionally** to header labels
+Field values are matched **positionally** to header labels (when a header is present).
 
-### Field Values
+A field value is one of:
 
-A field value can be:
+- **Scalar** — a bare word or quoted string (or an empty value between delimiters)
+- **Document** — a nested `{...}`
+- **Array** — `[...]`
 
-1. **Scalar value**: A bare word or quoted string
-2. **Nested document**: A `{}` block
-3. **Array**: An `[]` block
+### Empty Documents
 
-#### Scalar Values
+A literal `{}` (zero fields) parses to an empty array `[]`, regardless of whether the header declares fields. To represent "all fields default" with a header, use explicit empty values: `{,,,}` is **not** valid (trailing commas error); explicit `null`s are recommended: `{null,null,null}`.
 
-Bare words are assumed to be strings unless they match a type literal:
+### Arrays
 
-- `null` → `null` (JSON null)
-- `true`, `false` → boolean
-- `123` → integer (regex: `-?\d+`)
-- `123.45` → float (regex: `-?\d+\.\d+`)
-- `hello` → string (anything else)
-
-Empty string is represented by a missing value between commas or before the closing brace:
+`[...]` denotes an array of zero or more comma-separated field values:
 
 ```
-{,value}    # first field is empty string
-{value,}    # second field is empty string (not allowed — trailing comma is error)
+[]
+[item]
+[item1,item2,item3]
 ```
 
-Whitespace inside `{}` and `[]` is stripped from the start and end of each value:
+Items follow the same type-inference rules as scalars. An array of nested documents is allowed even when the header schema is not declared as `[]:(...)`, but parsers **MUST** preserve the nesting — nested documents inside arrays do not inherit the row's schema.
 
-```
-{ hello , world }  →  ["hello", "world"]
-```
+### Trailing Commas
 
-Whitespace inside quoted values is preserved:
+Trailing commas are **not** allowed in headers, documents, or arrays. They are a parse error.
 
-```
-{"  hello  "}  →  ["  hello  "]
-```
+### Duplicate Row Labels
 
-#### Quoted Values
+If two rows in the same body share a label, the **last definition wins**. Earlier values are silently overwritten. (Implementations MAY surface a warning but MUST NOT error.)
 
-To include spaces, commas, or special characters in a scalar, use quotes:
+### Mixed Labeled/Unlabeled Rows
 
-```
-"hello world"
-'value with, comma'
-"escaped \"quote\" inside"
-```
-
-Escape sequences inside quotes:
-- `\"` → quote (in double-quoted strings)
-- `\'` → quote (in single-quoted strings)
-- `\\` → backslash
-- `\n` → newline
-- `\t` → tab
-
-#### Nested Documents
-
-A field can contain a nested document if the header specifies a nested schema:
-
-```
-(name,address:(city,zip))
-user1:{John,{NYC,10001}}
-```
-
-The nested schema applies positionally to the nested document.
-
-#### Arrays
-
-A field can be an array if the header label ends in `[]`:
-
-```
-(name,tags[])
-user1:{John,[admin,developer]}
-```
-
-Arrays contain zero or more comma-separated field values:
-
-```
-[]                # empty array
-[item]            # single item
-[item1,item2]     # multiple items
-```
-
-Items in an array follow the same rules as scalar values (type inference, escaping, etc.).
+Mixing labeled and unlabeled rows is a parse error. The error MUST report the line and column of the first offending row.
 
 ---
 
-## Type Inference
+## Scalars and Type Inference
 
-When parsing a bare (unquoted) value, the type is inferred in this order:
+A bare (unquoted) scalar value is mapped to a JSON type by the following rules, applied **in order**:
 
-1. If the value is exactly `null`, it is `null`
-2. If the value is exactly `true` or `false`, it is a boolean
-3. If the value matches `-?\d+` (optional sign + digits), it is an integer
-4. If the value matches `-?\d+\.\d+` (optional sign + digits + dot + digits), it is a float
-5. Otherwise, it is a string
+1. The literal token `null` → JSON `null`.
+2. The literal tokens `true` / `false` → JSON booleans.
+3. Matches the regex `^-?\d+$` → JSON integer.
+4. Matches the regex `^-?\d+\.\d+$` → JSON float.
+5. Otherwise → JSON string.
 
-**Note**: Scientific notation (e.g., `1e5`) is not recognized and is parsed as a string.
+Type inference applies **only to bare values**. A quoted value is **always** a string, even if the contents would otherwise match a literal:
+
+| Input | Parsed value |
+|-------|--------------|
+| `null` | `null` |
+| `"null"` | `"null"` (string) |
+| `true` | `true` |
+| `"true"` | `"true"` (string) |
+| `42` | `42` (integer) |
+| `"42"` | `"42"` (string) |
+
+### Number Edge Cases
+
+- `-0` parses as integer `0`.
+- `1.` and `.5` are **strings** (do not match the float regex).
+- `1e5` is a **string** (scientific notation is not native; v1.0 does not recognize it as a number).
+- `Infinity`, `NaN` are **strings** (not native; JSON itself does not recognize them).
+- Integer precision is implementation-defined and SHOULD match the host language's native integer representation (JavaScript: `Number`/`BigInt` boundary; Python: arbitrary precision).
+
+### Empty Scalars
+
+An empty value between delimiters is the empty string `""`:
+
+```
+{,bar}      → ["", "bar"]
+{foo,,baz}  → ["foo", "", "baz"]
+```
+
+Both `{,}` (one empty field followed by trailing comma) and `{val,}` are parse errors (trailing comma).
+
+### Whitespace
+
+- Whitespace **outside** `{}` and `[]` is ignored (may surround `:` in row labels and `,` in headers).
+- Whitespace **inside** `{}` and `[]` is stripped from the start and end of each unquoted value.
+- Whitespace **inside quotes** is preserved verbatim.
+
+```
+{ foo , bar }     →  ["foo", "bar"]
+{"  foo  "}       →  ["  foo  "]
+user1 : {x}       ≡  user1:{x}
+```
 
 ---
 
-## Escape Sequences
+## Quoted Strings
 
-Backslash `\` escapes the following character. The following escapes are recognized:
+Quoted strings use either `"` or `'` as delimiters. Inside a quoted string:
+
+- The matching quote character must be escaped: `\"` or `\'`.
+- A literal backslash is escaped: `\\`.
+- `\n` and `\t` produce newline and tab respectively.
+- Other backslash sequences (e.g. `\x`) emit the character following the backslash literally; `\` followed by EOF is an error.
+- Raw newlines inside a quoted string are **not** allowed; use `\n`.
+
+Quoted strings are always typed as JSON strings, regardless of content.
+
+---
+
+## Escape Sequences in Bare Values
+
+Bare (unquoted) values **MAY** use backslash escapes to include otherwise-illegal characters:
 
 | Escape | Meaning |
 |--------|---------|
-| `\,` | Comma (field delimiter) |
-| `\{` | Left brace |
-| `\}` | Right brace |
-| `\[` | Left bracket |
-| `\]` | Right bracket |
-| `\(` | Left paren |
-| `\)` | Right paren |
+| `\,` | Comma |
+| `\{` `\}` | Braces |
+| `\[` `\]` | Brackets |
+| `\(` `\)` | Parentheses |
 | `\:` | Colon |
 | `\\` | Backslash |
-| `\n` | Newline (literal newline character, not allowed in values on same row) |
+| `\n` | Newline |
 | `\t` | Tab |
 
-Escaping is only necessary inside bare (unquoted) values. Inside quoted values, use `\"` or `\'` for quotes; other escapes are optional (literal backslash is safe).
+Other backslash sequences in bare values are reserved for future use; v1.0 parsers **MUST** emit the character following the backslash literally and **MAY** warn.
+
+Inside quoted strings, escaping is only required for the delimiter and backslash; other special characters need no escaping.
+
+---
+
+## Extensibility and Reserved Characters
+
+v1.0 reserves the following characters at the **leading position** of a bare scalar or label, for use by future XCON revisions and the planned XCON layers:
+
+| Character | Reserved for |
+|-----------|--------------|
+| `@` | Decorator macros (XCON/decorators) |
+| `#` | Comments |
+| `!` | Directives (e.g. version, encoding) |
+| `%` | Text-preprocessing macros (already defined in [MACROS.md](./MACROS.md)) |
+
+A v1.0 parser **MUST** reject any unquoted bare value or label that begins with one of these characters. To use these characters as ordinary content, **quote the value** (`"@user"`) or **escape it** (`\@user`).
+
+This reservation guarantees that future XCON versions can introduce syntax beginning with these characters without invalidating v1.0 documents — any v1.0 document that conforms to v1.0 will not accidentally collide with future syntax.
+
+Other special characters (`$`, `&`, `*`, `;`, `?`) are **not** reserved at this time; they are valid in quoted strings and (where the grammar allows them) in bare values via escaping. A future major version (v2.0+) may reserve additional characters.
+
+---
+
+## Version Directive
+
+A document **MAY** begin with an optional version directive on its first line:
+
+```
+!XCON 1.0
+```
+
+- The directive starts with `!XCON` followed by a single space and a `MAJOR.MINOR` version.
+- If present, it MUST be the first non-empty line, before any header.
+- v1.0 parsers MUST accept `!XCON 1.0` and `!XCON 1.x` for any non-negative `x`, and MAY reject other versions.
+- v1.0 parsers MUST treat the absence of a directive as v1.0.
+
+Future versions may add additional `!`-prefixed directives. v1.0 parsers **MUST** reject any unknown `!`-directive (this is the contract that allows future directives to introduce semantics safely).
 
 ---
 
 ## Output Semantics
 
-### With Header + Row Labels
+Given a parsed XCON document:
 
-```
-(name,age)
-user1:{John,30}
-user2:{Jane,25}
-```
+| Header | Row labels | Output shape |
+|--------|------------|--------------|
+| Yes | All present | `{ label: {schema-applied}, ... }` |
+| Yes | None present | `[ {schema-applied}, ... ]` |
+| No | All present | `{ label: [values...], ... }` |
+| No | None present | `[ [values...], ... ]` |
 
-Output:
-```json
-{
-  "user1": {"name": "John", "age": 30},
-  "user2": {"name": "Jane", "age": 25}
-}
-```
+When a header is present:
 
-### With Header + No Row Labels
-
-```
-(name,age)
-{John,30}
-{Jane,25}
-```
-
-Output:
-```json
-[
-  {"name": "John", "age": 30},
-  {"name": "Jane", "age": 25}
-]
-```
-
-### No Header + Row Labels
-
-```
-user1:{John,30,admin}
-user2:{Jane,25,user}
-```
-
-Output (each row is an array because no header defines keys):
-```json
-{
-  "user1": ["John", 30, "admin"],
-  "user2": ["Jane", 25, "user"]
-}
-```
-
-### No Header + No Row Labels
-
-```
-{John,30,admin}
-{Jane,25,user}
-```
-
-Output:
-```json
-[
-  ["John", 30, "admin"],
-  ["Jane", 25, "user"]
-]
-```
+- Each row's positional values are matched against the schema labels.
+- If a row has fewer values than the schema, missing trailing fields are `null`.
+- If a row has more values than the schema, the extras are silently discarded. (This is a stability guarantee: future schema extensions can add fields without breaking older documents.)
+- A field declared `[]` (array) **MUST** receive an array value or be absent. Receiving a non-array scalar in an array slot is a parse error.
+- A field declared with a nested schema **MUST** receive a document or be absent. Receiving a scalar in a nested-schema slot is a parse error.
 
 ---
 
-## Edge Cases & Decisions
+## Parser Limits
 
-### Empty Documents
+To prevent denial-of-service via adversarial input, conforming parsers **MUST** enforce configurable limits and **SHOULD** apply the following defaults:
 
-```
-{}
-```
+| Limit | Default | Description |
+|-------|---------|-------------|
+| `maxDepth` | 64 | Maximum nesting depth of `{}` and `[]` combined |
+| `maxLength` | 16 MiB | Maximum input size in UTF-8 bytes |
+| `maxRows` | 1,000,000 | Maximum number of rows in the body |
 
-Produces an empty array (not `null`):
-```json
-[]
-```
-
-### Trailing Commas
-
-Trailing commas are **not allowed** and cause a parse error:
-
-```
-{foo,bar,}  ← ERROR
-```
-
-### Duplicate Row Labels
-
-If the same row label appears twice, the **last one wins** (overwrites):
-
-```
-user:{John,30}
-user:{Jane,25}
-```
-
-Output: `{"user": {"name": "Jane", "age": 25}}`
-
-### Mixed Labeled/Unlabeled Rows
-
-**Not allowed**. All rows must be consistent:
-
-- Either all rows have labels
-- Or no rows have labels
-
-Mixing causes a parse error.
-
-### Whitespace Handling
-
-- **Outside `{}` and `[]`**: Insignificant (can have spaces around `:` in row labels)
-- **Inside `{}` and `[]`**: Leading and trailing whitespace around each value is stripped
-- **Inside quotes**: All whitespace is preserved
-
-```
-{ foo , bar }     →  ["foo", "bar"]
-{  " foo"  }      →  [" foo"]  (note: leading space inside quotes is preserved)
-user1 : {val}     →  Same as: user1:{val}
-```
-
-### Number Edge Cases
-
-- `-0` → parsed as integer `0` (JSON semantics)
-- `1e5` → **not** parsed as scientific notation, parsed as string `"1e5"` (v1 limitation)
-- `Infinity`, `NaN` → parsed as strings (not JSON native)
-- Floats must have digits on both sides of decimal: `1.` is invalid, `.5` is invalid
-
-### Empty Values
-
-An empty value (nothing between delimiters) is an empty string:
-
-```
-{,bar}        # first field is ""
-{"","bar"}    # same as above using quotes
-```
-
-### Whitespace in Row Labels
-
-Spaces in row labels are not allowed unless quoted:
-
-```
-user1:{...}           ✓ Valid
-"user 1":{...}        ✓ Valid
-user 1:{...}          ✗ Invalid (parsed as label="user", then error at "1")
-```
+Exceeding any limit is a parse error. Implementations **MUST** expose these limits as parse options.
 
 ---
 
 ## Grammar (EBNF)
 
 ```ebnf
-Document = [Header] Body
+Document      = [ VersionDirective Newline ] [ Header Newline ] Body
+VersionDirective = "!XCON" Space Version
+Version       = Digit+ "." Digit+
 
-Header = "(" LabelList ")"
+Header        = "(" LabelList ")"
+LabelList     = Label ( "," Label )*
+Label         = LabelName [ ArrayMarker ] [ ":" "(" LabelList ")" ]
+LabelName     = BareLabel | QuotedString
+ArrayMarker   = "[" "]"
 
-LabelList = Label ("," Label)*
+Body          = Row ( Newline+ Row )* [ Newline+ ]
+Row           = [ RowLabel ":" ] Document_
+RowLabel      = BareLabel | QuotedString
 
-Label = LabelName ArraySuffix? NestedSuffix?
-LabelName = BareWord | QuotedString
-ArraySuffix = "[]"
-NestedSuffix = "(" LabelList ")"
+Document_     = "{" [ FieldList ] "}"
+FieldList     = FieldValue ( "," FieldValue )*
+FieldValue    = Scalar | Document_ | Array
+Array         = "[" [ FieldList ] "]"
 
-Body = Row+
+Scalar        = BareValue | QuotedString | (* empty *)
 
-Row = [RowLabel ":"] XCONDocument
+BareLabel     = ( Letter | "_" ) ( Letter | Digit | "_" )*
+BareValue     = BareValueChar+
+BareValueChar = (* any character except: , { } [ ] ( ) : whitespace newline,
+                  and not @, #, !, % at the leading position;
+                  backslash-escaped specials are allowed *)
 
-RowLabel = BareWord | QuotedString
+QuotedString  = '"' QChar* '"' | "'" SChar* "'"
+QChar         = AnyCharExceptDoubleQuoteAndNewline | EscapeSequence
+SChar         = AnyCharExceptSingleQuoteAndNewline | EscapeSequence
+EscapeSequence = "\\" AnyChar
 
-XCONDocument = "{" FieldValueList? "}"
-
-FieldValueList = FieldValue ("," FieldValue)*
-
-FieldValue = Scalar | XCONDocument | Array
-
-Scalar = BareWord | QuotedString | ""
-
-Array = "[" FieldValueList? "]"
-
-BareWord = /[a-zA-Z0-9_]+/ | TypeLiteral
-
-TypeLiteral = "null" | "true" | "false"
-
-QuotedString = '"' (EscapedChar | ~["\n])* '"'
-             | "'" (EscapedChar | ~['\n])* "'"
-
-EscapedChar = "\\" (. | "n" | "t")
+Letter        = "A".."Z" | "a".."z"
+Digit         = "0".."9"
+Space         = " "
+Newline       = "\n" | "\r\n"
 ```
+
+Type inference (integer vs float vs string) is applied to the textual content of `BareValue` after parsing; quoted strings are never type-inferred.
 
 ---
 
-## Version & Compatibility
+## Conformance
 
-**Current Version**: 0.1.0
+A v1.0 conforming parser:
 
-This spec covers XCON v0.1.0. Future versions may add:
-- Format versioning header (e.g., `!XCON 1.0`)
-- Comments
-- Streaming/incremental parsing
+1. Accepts all documents that conform to this grammar and produces the output shapes described in [Output Semantics](#output-semantics).
+2. Rejects all documents that violate this specification, with errors that include line and column.
+3. Reserves the leading characters `@`, `#`, `!`, `%` and rejects bare values/labels beginning with them.
+4. Encodes/decodes UTF-8.
+5. Enforces the parser limits described above.
+6. Does not require, but MAY recognize, the `!XCON 1.0` version directive.
 
-No backward compatibility is guaranteed for v0.x versions.
+A v1.0 conforming serializer:
+
+1. Produces output that a v1.0 parser will accept and that round-trips to the input value (for inputs in the supported value space: JSON-typed scalars, arrays, and string-keyed objects).
+2. Quotes any string that would otherwise tokenize as a non-string scalar (`null`, `true`, `false`, integers, floats), reserved-character-leading values, or contain delimiters/whitespace.
+3. Recurses into nested arrays-of-objects and nested objects, preserving schema and key ordering across rows.
 
 ---
 
@@ -550,98 +377,91 @@ No backward compatibility is guaranteed for v0.x versions.
 
 ### Example 1: Simple User List
 
-**XCON**:
 ```
 (name,age,active)
 alice:{Alice,30,true}
 bob:{Bob,25,false}
 ```
 
-**JSON**:
 ```json
 {
   "alice": {"name": "Alice", "age": 30, "active": true},
-  "bob": {"name": "Bob", "age": 25, "active": false}
+  "bob":   {"name": "Bob",   "age": 25, "active": false}
 }
 ```
 
-### Example 2: Array of Objects (No Row Labels)
+### Example 2: Array of Objects
 
-**XCON**:
 ```
 (name,role)
 {Alice,admin}
 {Bob,user}
 ```
 
-**JSON**:
 ```json
 [
   {"name": "Alice", "role": "admin"},
-  {"name": "Bob", "role": "user"}
+  {"name": "Bob",   "role": "user"}
 ]
 ```
 
 ### Example 3: Arrays in Data
 
-**XCON**:
 ```
 (name,tags[],verified)
 alice:{Alice,[admin,developer],true}
 bob:{Bob,[user],false}
 ```
 
-**JSON**:
 ```json
 {
   "alice": {"name": "Alice", "tags": ["admin", "developer"], "verified": true},
-  "bob": {"name": "Bob", "tags": ["user"], "verified": false}
+  "bob":   {"name": "Bob",   "tags": ["user"],               "verified": false}
 }
 ```
 
 ### Example 4: Nested Objects
 
-**XCON**:
 ```
 (name,address:(city,zip))
 alice:{Alice,{NYC,10001}}
 bob:{Bob,{LA,90001}}
 ```
 
-**JSON**:
 ```json
 {
   "alice": {"name": "Alice", "address": {"city": "NYC", "zip": "10001"}},
-  "bob": {"name": "Bob", "address": {"city": "LA", "zip": "90001"}}
+  "bob":   {"name": "Bob",   "address": {"city": "LA",  "zip": "90001"}}
 }
 ```
 
-### Example 5: No Header (Array of Arrays)
+### Example 5: Array of Nested Objects
 
-**XCON**:
 ```
-{Alice,30,true}
-{Bob,25,false}
+(name,addrs[]:(city,zip))
+alice:{Alice,[{NYC,10001},{LA,90001}]}
 ```
 
-**JSON**:
 ```json
-[
-  ["Alice", 30, true],
-  ["Bob", 25, false]
-]
+{
+  "alice": {
+    "name": "Alice",
+    "addrs": [
+      {"city": "NYC", "zip": "10001"},
+      {"city": "LA",  "zip": "90001"}
+    ]
+  }
+}
 ```
 
 ### Example 6: Complex Nesting
 
-**XCON**:
 ```
 (id,name,profile:(bio,social:(twitter,github)),active)
-user1:{1,Alice,{Senior Engineer,[twitter,github_user],true}
-user2:{2,Bob,{Product Manager,[],[],false}
+user1:{1,Alice,{Senior Engineer,{alice_t,alice_g}},true}
+user2:{2,Bob,{Product Manager,{bob_t,bob_g}},false}
 ```
 
-**JSON**:
 ```json
 {
   "user1": {
@@ -649,7 +469,7 @@ user2:{2,Bob,{Product Manager,[],[],false}
     "name": "Alice",
     "profile": {
       "bio": "Senior Engineer",
-      "social": ["twitter", "github_user"]
+      "social": {"twitter": "alice_t", "github": "alice_g"}
     },
     "active": true
   },
@@ -658,7 +478,7 @@ user2:{2,Bob,{Product Manager,[],[],false}
     "name": "Bob",
     "profile": {
       "bio": "Product Manager",
-      "social": [[], []]
+      "social": {"twitter": "bob_t", "github": "bob_g"}
     },
     "active": false
   }
@@ -667,14 +487,12 @@ user2:{2,Bob,{Product Manager,[],[],false}
 
 ### Example 7: Escaped Values
 
-**XCON**:
 ```
 (name,description)
-item1:{Widget,"A \, B, and C"}
+item1:{Widget,"A , B, and C"}
 item2:{Gadget,"Quote: \"Hello\""}
 ```
 
-**JSON**:
 ```json
 {
   "item1": {"name": "Widget", "description": "A , B, and C"},
@@ -682,124 +500,96 @@ item2:{Gadget,"Quote: \"Hello\""}
 }
 ```
 
-### Example 8: Empty Values
+### Example 8: Empty Values, Null vs. Empty String
 
-**XCON**:
 ```
 (name,email,phone)
 user1:{Alice,,555-1234}
-user2:{Bob,bob@example.com,}
+user2:{Bob,bob@example.com,null}
 ```
 
-**JSON**:
 ```json
 {
-  "user1": {"name": "Alice", "email": "", "phone": "555-1234"},
-  "user2": {"name": "Bob", "email": "bob@example.com", "phone": ""}
+  "user1": {"name": "Alice", "email": "",                    "phone": "555-1234"},
+  "user2": {"name": "Bob",   "email": "bob@example.com",     "phone": null}
 }
 ```
 
-### Example 9: All Types
+(Note `bob@example.com` is permitted because it appears inside a **quoted-or-escaped** position — but here it is a bare value beginning with `b`. The `@` is mid-value, not leading, so it is allowed.)
 
-**XCON**:
+### Example 9: All Native Types
+
 ```
 (string,integer,float,boolean,null_val)
 example:{hello,42,3.14,true,null}
 ```
 
-**JSON**:
 ```json
 {
   "example": {
-    "string": "hello",
-    "integer": 42,
-    "float": 3.14,
-    "boolean": true,
+    "string":   "hello",
+    "integer":  42,
+    "float":    3.14,
+    "boolean":  true,
     "null_val": null
   }
 }
 ```
 
-### Example 10: Token Efficiency Comparison
+### Example 10: Reserved-Character Leading Position Requires Quoting
 
-**JSON (72 tokens)**:
+```
+(handle,note)
+u1:{"@alice","email is alice@x.com"}
+u2:{"#tag","\#literal-hash"}
+```
+
 ```json
-[
-  {"name": "Alice", "age": 30, "role": "admin"},
-  {"name": "Bob", "age": 25, "role": "user"},
-  {"name": "Charlie", "age": 35, "role": "admin"}
-]
+{
+  "u1": {"handle": "@alice", "note": "email is alice@x.com"},
+  "u2": {"handle": "#tag",   "note": "#literal-hash"}
+}
 ```
 
-**XCON (38 tokens - 47% savings)**:
-```
-(name,age,role)
-{Alice,30,admin}
-{Bob,25,user}
-{Charlie,35,admin}
-```
-
-(Token count approximate; actual savings vary with tokenizer.)
+A bare leading `@` or `#` is rejected; quote or escape it.
 
 ---
 
 ## Implementation Notes
 
-### Recommended Parser Architecture
+A reference parser implementation has three stages:
 
-1. **Tokenizer**: Cursor-based scanner, produces token stream
-2. **Parser**: Recursive descent consumer of token stream, produces AST
-3. **Evaluator**: Walks AST, applies header schema, infers types, produces final JS/Python object
+1. **Tokenizer** — UTF-8 cursor scanner producing a token stream (parens, braces, brackets, colon, comma, newline, bare value, quoted string, array marker, EOF). Tokens carry line/column.
+2. **Parser** — recursive-descent consumer of the token stream, producing the AST nodes defined in this spec (`XCONDocument`, `Header`, `Body`, `Row`, `Document`, `Array`, `Value`, `Label`).
+3. **Evaluator** — walks the AST, applies the header schema, infers types on bare values, returns the final native object.
 
-This separation enables:
-- Clear error messages with line/column info
-- AST inspection and manipulation
-- Custom transformers built on the AST
-- Streaming parse support in future versions
+Errors **MUST** report:
 
-### Error Reporting
+- Line and column of the offending token (1-indexed).
+- The token type or character that triggered the error.
+- A human-readable message.
 
-Parsers MUST report:
-- **Line and column** of the error
-- **The offending token** or context
-- **A human-readable message** explaining the issue
-
-Example:
+Reference error format:
 
 ```
-XCONParseError at line 2, column 5:
-  Expected '}' to close document but found ','
-  user1:{name,age,,30}
-              ^^
+[XCON ParseError at 2:5] Expected '}' but got ',' (in row 'user1')
 ```
 
 ---
 
-## Design Rationale
+## Versioning Policy
 
-### Why No Indentation Syntax?
+XCON v1.0 is **stable**. The text grammar, type inference rules, output semantics, and reserved-character set defined in this document are frozen and will be honored by all future v1.x parsers.
 
-XCON prioritizes compactness. Indentation adds minimal value for structured data and consumes tokens.
-
-### Why Escape Instead of Unicode Escapes?
-
-Backslash escaping is simpler and more efficient than Unicode escapes (`A`). It also mirrors common syntax in programming languages.
-
-### Why Positional Header Application?
-
-Headers define an ordered list of labels. Applying them positionally keeps the parser simple and the format predictable. Explicit inline keys (like `{name:Alice,age:30}`) would add verbosity and overhead.
-
-### Why No Comments?
-
-Comments would complicate the grammar and likely be unnecessary in LLM output. If tools need to annotate XCON, they can wrap it in a JSON object: `{"xcon": "...", "notes": "..."}`
+- **Backward compatibility (v1.x)** — every v1.0 document parses identically under all v1.x parsers.
+- **Forward compatibility (v1.x → v1.0)** — v1.0 parsers will reject any v1.x document that uses syntax introduced after v1.0 (via the reserved-character mechanism or unknown `!`-directives), with a clear error.
+- **Major version bump (v2.0)** — only a v2.0 may break v1.0 syntax, and only after a deprecation period.
 
 ---
 
-## Appendix: Common Patterns
+## Appendix A: Common Patterns
 
-### Optional Fields (Using Null)
-
-When a field may not have a value, use `null`:
+### Optional Fields
 
 ```
 (name,email,phone)
@@ -807,9 +597,9 @@ user1:{Alice,alice@example.com,null}
 user2:{Bob,null,555-1234}
 ```
 
-### Representing Empty Collections
+(`null` for missing values; not the empty string.)
 
-Empty arrays are represented with `[]`:
+### Empty Arrays
 
 ```
 (name,tags[])
@@ -817,9 +607,7 @@ user1:{Alice,[]}
 user2:{Bob,[admin,user]}
 ```
 
-### Dynamic Columns (No Header)
-
-For data with variable schema, omit the header and use arrays:
+### Variable-Schema Rows (No Header)
 
 ```
 {Alice,30}
@@ -827,19 +615,19 @@ For data with variable schema, omit the header and use arrays:
 {Charlie,35,engineer,NYC}
 ```
 
-Each row can have a different number of columns. Parse to array of arrays.
+Without a header, each row is an array; per-row arity may vary.
 
-### Flattening Nested Data for Compression
+---
 
-For deeply nested data, consider flattening:
+## Appendix B: Media Type
+
+The recommended media type for XCON documents is `application/xcon`. A media type registration is planned. Until registration is complete, the unregistered type is informational only.
+
+For HTTP content negotiation:
 
 ```
-# Instead of:
-(name,address:(city,address:(street,number)))
-
-# Flatten to:
-(name,address_city,address_street,address_number)
-alice:{Alice,NYC,5th Ave,100}
+Accept: application/xcon, application/json;q=0.9
+Content-Type: application/xcon; charset=utf-8
 ```
 
-This is less hierarchical but more token-efficient.
+A `charset` parameter other than `utf-8` is ill-formed and SHOULD be rejected.

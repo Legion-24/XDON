@@ -1,155 +1,42 @@
-# XCON Macros
+# XCON Text-Preprocessing Macros v1.0
 
-XCON has two macro layers:
+XCON v1.0 ships with a text-level macro system — `%`-prefixed substitutions that run **before** the document is parsed. Macros enable templating, parameterized fragments, inline arithmetic, and access to a small set of built-in values.
 
-1. **Decorator macros** (`@ref`, `@lazy`, `@fn`, `@sql`, `@rest`, `@cache`, `@macro`) — declarative annotations on schema fields and values that bind to callbacks across JS, Python, and Rust. Used for lazy loading, federation, computed fields, and ambient context.
-2. **Text-preprocessing macros** (`%`-prefixed) — a text-level substitution system that runs **before** XCON parsing. Used for templating, parameterized fragments, and built-in values (date, UUID, env vars).
+> **Note.** Macros are an **opt-in preprocessing step**. They are not part of XCON's grammar; calling `parse(input)` on a document that contains macros will fail. Call `expand(input)` first, then `parse(expanded)`.
 
-This document covers both. Decorator macros first; text macros from [Quick Start](#quick-start) onward.
-
----
-
-## Decorator Macros
-
-Decorator macros are written inline in the schema or value position and resolve via host-language callbacks. They are **declarative** — the parser records the annotation; expansion happens on demand at evaluation time.
-
-Callback bindings are supported in **JavaScript / TypeScript**, **Python**, and **Rust**. Each runtime registers handler functions against the macro name; the parser invokes them when the document is evaluated.
-
-### `@ref` — lazy field references
-
-A pointer to data living elsewhere (another row, another document, another server). The reference is opaque until resolved.
-
-```
-(id,name,manager)
-{1,Alice,@ref(employees,7)}
-{7,Bob,@ref(employees,12)}
-```
-
-**Resolution:** the host registers a resolver keyed on the table/document name. The reference is fetched only when the field is accessed.
-
-```ts
-import { registerRef } from '@legion24/xcon';
-registerRef('employees', async (id) => db.employees.findOne({ id }));
-```
-
-**Languages:** JS/TS, Python, Rust.
-
-### `@lazy` — deferred expansion strategies
-
-Marks a field as not-yet-loaded with a strategy hint (`stream`, `paginate`, `on-demand`).
-
-```
-(id,name,attachments)
-{1,Alice,@lazy(stream,/api/users/1/attachments)}
-```
-
-**Resolution:** the runtime defers fetching until the consumer iterates the field. Streaming strategies wire into the XCON/stream layer; pagination strategies issue follow-up requests.
-
-**Languages:** JS/TS, Python, Rust.
-
-### `@fn` — function definitions and callback binding
-
-Defines a callable inline; the body is evaluated by the host language.
-
-```
-%define
-@fn(double,x) = "x * 2"
-@fn(greet,name) = "`hello ${name}`"
-
-(id,score)
-{1,@fn:double(21)}
-```
-
-**Resolution:** the host language compiles the body and binds it under the function name. Bodies are sandboxed per-runtime (Function constructor in JS, restricted `eval` in Python, dynamic dispatch in Rust).
-
-**Languages:** JS/TS (Function), Python (sandboxed), Rust (compile-time registration).
-
-### `@sql` — SQL source macros
-
-Annotates a value or row as the result of a SQL query.
-
-```
-(id,name,orders)
-{1,Alice,@sql("SELECT id,total FROM orders WHERE user_id=1")}
-```
-
-**Resolution:** the registered SQL backend executes the query lazily; the result becomes a nested XCON document with the query columns as its header.
-
-**Languages:** JS/TS, Python, Rust.
-
-### `@rest` — REST source macros
-
-Annotates a value as the result of an HTTP fetch.
-
-```
-(id,name,profile)
-{1,Alice,@rest(GET,/api/users/1/profile)}
-```
-
-**Resolution:** the registered HTTP client issues the request when the field is accessed; the response (XCON or JSON via the adapter) is folded in.
-
-**Languages:** JS/TS, Python, Rust.
-
-### `@cache` — caching decorator macros
-
-Wraps another macro with a cache policy.
-
-```
-{1,Alice,@cache(ttl=60,@rest(GET,/api/users/1/profile))}
-```
-
-**Resolution:** the runtime keys the cache on the wrapped macro's resolved arguments; subsequent reads within the TTL skip the underlying call.
-
-**Languages:** JS/TS, Python, Rust.
-
-### `@macro` — ambient context injection
-
-Pulls a value from the document's ambient context (set by the caller / server / session).
-
-```
-(id,name,tenant)
-{1,Alice,@macro(tenant_id)}
-```
-
-**Resolution:** the runtime looks up the name in the active `MacroContext`; LLM contexts, DB sessions, and HTTP middlewares can populate ambient values without modifying the document body.
-
-**Languages:** JS/TS, Python, Rust.
-
----
-
-## Text-Preprocessing Macros (`%`)
-
-The `%`-prefixed text-level macro system runs **before** XCON parsing. It enables text substitution, parameterized templates, arithmetic evaluation, and access to system information (date, time, UUID, environment variables).
+> **Decorator macros** (`@ref`, `@lazy`, `@fn`, `@sql`, `@rest`, `@cache`, `@macro`) are **planned** for a future XCON layer (XCON/decorators) and are **not implemented in v1.0**. The `@` character is reserved at the leading position of bare values to enable that future layer; see [SPEC.md § Reserved Characters](./SPEC.md#extensibility-and-reserved-characters).
 
 ---
 
 ## Quick Start
 
 **TypeScript / JavaScript:**
-```typescript
-import { expand, parse } from 'xcon';
 
-const xconWithMacros = `
+```ts
+import { expand, parse } from '@legion24/xcon';
+
+const source = `
 %header = "(name,age)"
 %header
 alice:{Alice,30}
 `;
 
-const expanded = expand(xconWithMacros);
+const expanded = expand(source);
 const data = parse(expanded);
 ```
 
 **Python:**
+
 ```python
 from xcon import expand, parse
 
-xcon_with_macros = '''
+source = '''
 %header = "(name,age)"
 %header
 alice:{Alice,30}
 '''
 
-expanded = expand(xcon_with_macros)
+expanded = expand(source)
 data = parse(expanded)
 ```
 
@@ -159,284 +46,188 @@ data = parse(expanded)
 
 ### Definition Line
 
-Macro definitions are single-line, consumed during expansion:
-
 ```
 %name = "body"
+%name(p1,p2) = "body with {p1} and {p2}"
 ```
 
-- Must start with `%` followed by a valid identifier (`[a-zA-Z_][a-zA-Z0-9_]*`)
-- Name is **case-sensitive**: `%X` and `%x` are different macros
-- Body is a quoted string with optional escape sequences:
-  - `\"` → quote
-  - `\\` → backslash
-  - `\n` → newline
-  - `\t` → tab
+- Must start with `%` followed by a valid identifier matching `[A-Za-z_][A-Za-z0-9_]*`.
+- Names are **case-sensitive**: `%X` and `%x` are distinct macros.
+- The body is a double-quoted string supporting `\"`, `\\`, `\n`, `\t` escapes.
+- Definition lines are **consumed** during expansion — they do not appear in the output.
 
-**Example:**
-```
-%greeting = "hello\nworld"
-```
-
-### Simple Macro (No Parameters)
-
-Expand by name:
+### Simple Reference
 
 ```
 %greeting = "hello"
-Say %greeting
+Say %greeting   →  Say hello
 ```
 
-Result: `Say hello`
+### Parameterized Reference
 
-### Parameterized Macro
-
-Define with parameters; arguments substitute into placeholders:
-
-```
-%greet(name) = "hello {name}!"
-%greet(Alice)
-```
-
-Result: `hello Alice!`
-
-**Multiple parameters:**
-```
-%pair(a,b) = "{a} and {b}"
-%pair(x,y)
-```
-
-Result: `x and y`
-
-**Placeholders can be repeated or unused:**
-```
-%dup(x) = "{x}-{x}"
-%dup(foo)
-
-%template(a,b) = "{a}"
-%template(1,2)
-```
-
-Results: `foo-foo` and `1`
-
-**Arguments can contain spaces:**
 ```
 %greet(name) = "hello {name}"
-%greet(Alice Smith)
+%greet(Alice)   →  hello Alice
 ```
 
-Result: `hello Alice Smith`
+Placeholders use `{param}` syntax:
+
+- May be repeated: `%dup(x) = "{x}-{x}"`, `%dup(foo)` → `foo-foo`
+- Unused parameters are ignored.
+- Arguments may contain spaces.
+- Substitution is performed in a single left-to-right pass; placeholder names that are prefixes of other names do **not** corrupt later substitutions.
 
 ### Expression Macro
 
-Evaluate arithmetic inline:
+Inline arithmetic with `+`, `-`, `*`, `/`, `%` (modulo), parentheses, and unary minus:
 
 ```
-%{2+3}
-%{10-4}
-%{3*4}
-%{10/2}
-%{10%3}
-%{(2+3)*4}
-%{-5+2}
+%{2+3}        →  5
+%{10/2}       →  5
+%{10/4}       →  2.5
+%{(2+3)*4}    →  20
+%{-5+2}       →  -3
 ```
 
-Results: `5`, `6`, `12`, `5`, `1`, `20`, `-3`
+Type handling:
 
-**Type handling:**
-- Integer results display without decimals: `%{10/2}` → `5`
-- Float results show all significant digits: `%{10/4}` → `2.5`
-
-**Macros inside expressions:**
-```
-%n = "5"
-%{%n+10}
-```
-
-Result: `15`
+- An **integer-valued** result is rendered without a decimal point: `%{10/2}` → `5`.
+- A **non-integer** result is rendered with all significant digits: `%{10/4}` → `2.5`.
+- Macros may be referenced inside expressions: `%n = "5"`, `%{%n+10}` → `15`.
 
 ---
 
-## Built-In Macros (Spec-Defined)
+## Built-In Macros
 
-Always available without definition. Prefixed with `_`.
+Always available without definition. All built-ins are prefixed with `_` and are evaluated **per reference** — each `%_UUID` in the same document yields a fresh value.
 
 | Macro | Returns | Example |
 |-------|---------|---------|
 | `%_DATE_STR` | ISO 8601 date | `2026-04-30` |
-| `%_TIME_STR` | HH:MM:SS | `14:35:22` |
+| `%_TIME_STR` | `HH:MM:SS` | `14:35:22` |
 | `%_DATETIME_STR` | ISO 8601 datetime | `2026-04-30T14:35:22Z` |
 | `%_TIMESTAMP` | Unix seconds | `1746057322` |
-| `%_DAY_STR` | Day name | `Wednesday` |
+| `%_DAY_STR` | Day of week | `Wednesday` |
 | `%_UUID` | UUID v4 | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
-| `%_ENV(VAR)` | Env variable | `%_ENV(HOME)` |
+| `%_ENV(VAR)` | Environment variable (when allowed) | `%_ENV(NODE_ENV)` |
 
-**Examples:**
-```
-log:%_TIMESTAMP
-date:%_DATE_STR
-id:%_UUID
-user:%_ENV(USER)
-```
+### Built-in Override
 
-**Override built-ins:**
+A user macro definition with the same name as a built-in **shadows** the built-in for the rest of the document:
+
 ```
 %_DATE_STR = "custom-date"
-Date: %_DATE_STR
+Date: %_DATE_STR    →  Date: custom-date
 ```
 
-Result: `Date: custom-date`
+### Environment Variables
 
----
+`%_ENV(VAR)` is **disabled by default** in v1.0. Reading process environment variables is opt-in for security: a document from an untrusted source could otherwise exfiltrate secrets via `%_ENV(AWS_SECRET_ACCESS_KEY)`.
 
-## Visibility & Scoping
-
-### Forward References Not Allowed
-
-Macros are only visible after their definition:
-
-```
-%x
-%x = "hello"
-```
-
-Error: `undefined macro 'x'`
-
-### Pre-defined Context
-
-You can provide pre-defined macros that are visible from line 1:
+Enable per-call with an explicit allowlist:
 
 **TypeScript:**
-```typescript
-import { expand, ExpandOptions } from 'xcon';
 
-const ctx = new Map([
-  ['env', { body: 'prod', params: null, sourceLine: 0 }],
-]);
-
-const expanded = expand(xcon, { initialContext: ctx });
+```ts
+expand(source, { envAllowlist: ['NODE_ENV', 'PORT'] });
+// %_ENV(NODE_ENV) → 'production'
+// %_ENV(SECRET)   → '' (not on allowlist)
 ```
 
 **Python:**
+
 ```python
-from xcon import expand, ExpandOptions, MacroDefinition
-
-ctx = {
-    'env': MacroDefinition(body='prod', params=None, source_line=0)
-}
-
-expanded = expand(xcon, ExpandOptions(initial_context=ctx))
+from xcon import expand, ExpandOptions
+expand(source, ExpandOptions(env_allowlist=['NODE_ENV', 'PORT']))
 ```
 
-### Redefinition Overwrites
+If `envAllowlist` / `env_allowlist` is omitted or empty, `%_ENV(...)` always expands to the empty string. Setting `envAllowlist: '*'` (string) allows all environment variables; this is **not recommended** for documents from untrusted sources.
 
-Last definition wins:
+---
+
+## Visibility
+
+- **Forward references** are not allowed in strict mode. A macro is visible only after its definition line.
+- **Initial context** can be supplied programmatically and is visible from line 1 (see [API Reference](#api-reference)).
+- **Redefinition** overwrites the prior definition (last wins).
 
 ```
 %x = "a"
 %x = "b"
-%x
+%x          →  b
 ```
-
-Result: `b`
 
 ---
 
-## Nesting & Recursion
+## Nesting
 
-### Macro-Refs-Macro
-
-A macro body can reference other macros:
+A macro body may reference other macros:
 
 ```
 %sep = ","
 %row(a,b) = "{a}%sep{b}"
-%row(x,y)
+%row(x,y)   →  x,y
 ```
 
-Result: `x,y`
+### Depth Limit
 
-### Circular Detection
-
-Circular references are detected and throw an error:
+Expansion depth is limited to 16 by default to prevent runaway recursion. Direct or transitive cycles are detected as depth-exceeded errors:
 
 ```
 %a = "%b"
 %b = "%a"
-%a
+%a          →  Error: Macro expansion depth exceeded
 ```
 
-Error: `macro expansion depth exceeded`
-
-### Depth Limit
-
-Expansion is limited to depth 16 by default (prevents runaway recursion):
-
-```typescript
-// Customize the limit:
-const expanded = expand(xcon, { maxDepth: 32 });
-```
+Increase the limit if needed (`maxDepth` / `max_depth` option), but most legitimate macros stay within depth 5.
 
 ---
 
-## Strict vs. Non-Strict Mode
+## Strict Mode
 
-### Strict Mode (Default)
+By default (`strict: true`), unknown macros raise an error:
 
-Unknown macros throw an error:
-
-```typescript
-const expanded = expand('%unknown', { strict: true });
-// Error: undefined macro 'unknown'
+```
+expand("%missing")           // throws XCONMacroError: Undefined macro 'missing'
 ```
 
-### Non-Strict Mode
+In `strict: false`, unknown macros are left as-is so that downstream tooling may process them:
 
-Unknown macros are left as-is:
-
-```typescript
-const expanded = expand('value: %unknown', { strict: false });
-// Result: value: %unknown
-
-// Defined macros still expand:
-const expanded = expand(
-  '%x = "hello"\nval: %x and %unknown',
-  { strict: false }
-);
-// Result: val: hello and %unknown
+```
+expand("%missing", { strict: false })   // returns "%missing"
 ```
 
-Use non-strict mode to leave macro-like syntax for other tools to process.
+Defined macros still expand; only unknown ones are passed through.
 
 ---
 
-## Error Handling
+## Error Reporting
 
-Macros report line and column information:
+All macro errors carry line and column information:
 
 ```
-XCONMacroError at line 2, column 5:
-  Undefined macro 'missing'
-  row:{1,%missing,value}
-         ^
+[XCON MacroError at 2:5] Undefined macro 'missing'
 ```
 
 Common errors:
 
 | Error | Cause |
 |-------|-------|
-| `Undefined macro 'name'` | Macro used before definition (strict mode) |
-| `Macro 'name' expects N arguments, got M` | Wrong argument count |
+| `Undefined macro 'name'` | Used before definition (strict mode) |
+| `Macro 'name' expects N arguments, got M` | Argument-count mismatch |
 | `Macro 'name' takes no parameters, but M provided` | Simple macro called with args |
-| `Unclosed parameter list for macro` | Unclosed `(` in call |
+| `Unclosed parameter list for macro` | Missing `)` |
+| `Unclosed expression macro %{...}` | Missing `}` |
 | `Division by zero in expression` | `%{10/0}` |
-| `Macro expansion depth exceeded` | Circular or overly nested expansion |
+| `Modulo by zero in expression` | `%{10%0}` |
+| `Macro expansion depth exceeded` | Cycle or deep nesting |
+| `Unexpected character in expression` | Non-arithmetic char inside `%{...}` |
 
 ---
 
 ## Practical Examples
 
-### Example 1: DRY Headers
+### DRY Headers
 
 ```
 %header = "(id,name,email,role,active)"
@@ -446,7 +237,7 @@ emp1:{1,Alice,alice@example.com,admin,true}
 emp2:{2,Bob,bob@example.com,user,false}
 ```
 
-### Example 2: Parameterized Rows
+### Parameterized Rows
 
 ```
 %emp(id,name,email,role) = "{id,name,email,role,true}"
@@ -456,15 +247,7 @@ emp1:%emp(1,Alice,alice@example.com,admin)
 emp2:%emp(2,Bob,bob@example.com,user)
 ```
 
-### Example 3: Dynamic IDs with UUID
-
-```
-(id,name,created)
-alice:%{%_UUID},%Alice,%_DATE_STR}
-bob:{%_UUID,Bob,%_DATE_STR}
-```
-
-### Example 4: Computed Values
+### Computed Values
 
 ```
 %num = "100"
@@ -472,30 +255,38 @@ bob:{%_UUID,Bob,%_DATE_STR}
 result:{%num,%{%num*2}}
 ```
 
-### Example 5: Environment-Driven Config
+Expanded:
 
 ```
-%env = "%_ENV(NODE_ENV)"
+(value,doubled)
+result:{100,200}
+```
+
+### Environment-Driven Config
+
+```ts
+const expanded = expand(source, { envAllowlist: ['NODE_ENV'] });
+```
+
+```
 (env,host,debug)
-config:{%env,localhost,false}
+config:{%_ENV(NODE_ENV),localhost,false}
 ```
 
 ---
 
 ## API Reference
 
-### `expand(input, options?)`
+### TypeScript
 
-Expands macros in the input string.
-
-**TypeScript:**
-```typescript
-function expand(input: string, options?: ExpandOptions): string;
+```ts
+import { expand, ExpandOptions, MacroDefinition } from '@legion24/xcon';
 
 interface ExpandOptions {
-  initialContext?: MacroContext;
-  strict?: boolean;      // default: true
-  maxDepth?: number;     // default: 16
+  initialContext?: MacroContext;       // pre-defined macros visible from line 1
+  strict?: boolean;                    // default: true
+  maxDepth?: number;                   // default: 16
+  envAllowlist?: string[] | '*';       // default: [] (no env access)
 }
 
 interface MacroDefinition {
@@ -505,18 +296,22 @@ interface MacroDefinition {
 }
 
 type MacroContext = Map<string, MacroDefinition>;
+
+function expand(input: string, options?: ExpandOptions): string;
 ```
 
-**Python:**
+### Python
+
 ```python
-def expand(input_text: str, options: Optional[ExpandOptions] = None) -> str:
-    ...
+from xcon import expand, ExpandOptions, MacroDefinition
+from typing import Optional
 
 @dataclass
 class ExpandOptions:
-    initial_context: Optional[MacroContext] = None
+    initial_context: Optional[dict[str, MacroDefinition]] = None
     strict: bool = True
     max_depth: int = 16
+    env_allowlist: list[str] | str | None = None  # default: no env access; '*' for all
 
 @dataclass
 class MacroDefinition:
@@ -524,76 +319,55 @@ class MacroDefinition:
     params: Optional[list[str]]
     source_line: int
 
-MacroContext = dict[str, MacroDefinition]
+def expand(input_text: str, options: Optional[ExpandOptions] = None) -> str: ...
 ```
-
-### Options
-
-- **`initialContext`** — Pre-defined macros visible from line 1
-- **`strict`** — If `true` (default), undefined macros throw an error; if `false`, they are left as-is
-- **`maxDepth`** — Maximum nesting depth (default 16); prevents infinite recursion
-
----
-
-## Integration with XCON Parsing
-
-Macros are a preprocessing step. Always expand before parsing:
-
-```typescript
-const xconWithMacros = `
-%header = "(name,age)"
-%header
-alice:{Alice,30}
-`;
-
-const expanded = expand(xconWithMacros);
-const data = parse(expanded);
-```
-
-The macro system is **format-agnostic**: it transforms raw text to raw text, making it suitable for other formats too.
 
 ---
 
 ## Design Decisions
 
-### Why Text-Level?
+### Why text-level?
 
-Macros operate on raw text before tokenization. This keeps the macro system independent of XCON's grammar and makes macros reusable for other formats.
+Macros operate on raw text before tokenization. This keeps the macro layer fully decoupled from XCON's grammar — the same engine can preprocess any text format.
 
-### Why Positional Parameters?
+### Why positional parameters?
 
-Positional parameters (`{a}`, `{b}`) are simpler and more efficient than named parameters. Unnamed parameters are common in template systems (C preprocessor, shell `$1`, etc.).
+Positional parameters are simpler and more efficient than named parameters and match conventions familiar from C macros, shell `$1`, and templating systems.
 
-### Why Limit Depth?
+### Why no variable assignment?
 
-A depth limit of 16 prevents accidental infinite recursion without banning legitimate use cases (most real macros are 3–5 levels deep). You can increase it if needed.
+Macros are functional — each expansion is a pure function of its arguments and context. Mutable variables would complicate caching, ordering, and reasoning. Use `initialContext` to inject values at call time.
 
-### Why No Variable Assignment?
+### Why per-reference `%_UUID`?
 
-Macros are functional: each expansion is independent. Variables would require mutable state, complicating the model. Use pre-defined context (`initialContext`) for parameterized inputs instead.
+A document author may write `id:%_UUID,backup_id:%_UUID` and expect two distinct UUIDs. Built-ins are evaluated each time they are referenced, not once per `expand()` call.
+
+### Why is `%_ENV` opt-in?
+
+`%_ENV` reads process environment variables, including secrets. Allowing it by default would mean any XCON document from an untrusted source could exfiltrate secrets. v1.0 requires explicit opt-in via an allowlist.
 
 ---
 
 ## FAQ
 
-**Q: Can macros span multiple lines?**
-A: No, definition lines are single-line. If you need multi-line content, escape newlines: `%x = "line1\nline2"`
+**Q: Can macro definitions span multiple lines?**
+A: No. Definition lines are single-line. Use `\n` inside the body string to embed newlines: `%x = "line1\nline2"`.
 
 **Q: Can I nest parameterized calls?**
-A: Yes: `%f(%g(x))` works if both are defined.
+A: Yes. `%f(%g(x))` works if both are defined.
 
 **Q: What if a macro definition is malformed?**
-A: Malformed definitions (missing quotes, unclosed parens) are left as-is and don't define a macro.
+A: Malformed definitions (missing quotes, unclosed parens) are not recognized as definitions; the line is treated as content. In strict mode, any `%name` reference on that line will then raise `Undefined macro`.
 
 **Q: Can I use macros in macro names?**
-A: No. Macro names are fixed identifiers; you can't substitute them. (Only bodies and arguments are expanded.)
+A: No. Macro names are fixed identifiers; only bodies and arguments are expanded.
 
-**Q: Performance?**
-A: The default depth limit is 16; most real macros expand in 1–3 passes. Linear in input size; no performance issues for typical XCON documents.
+**Q: Are macros guaranteed to terminate?**
+A: Yes — the `maxDepth` cap prevents infinite recursion. Cycles raise `Macro expansion depth exceeded`.
 
 ---
 
 ## See Also
 
-- [SPEC.md](./SPEC.md) — Full XCON format specification
-- [README.md](./README.md) — Quick-start guide
+- [SPEC.md](./SPEC.md) — XCON v1.0 text format specification
+- [README.md](./README.md) — quick start and overview

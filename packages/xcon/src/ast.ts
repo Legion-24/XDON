@@ -1,13 +1,12 @@
 /**
  * Abstract Syntax Tree (AST) node types for XCON documents.
- * These types represent the parsed structure of XCON text,
- * independent of final type inference or evaluation.
  */
 
 export interface XCONDocument {
   type: 'XCONDocument';
   header: HeaderNode | null;
   body: BodyNode;
+  versionDirective: string | null;
 }
 
 export interface HeaderNode {
@@ -30,6 +29,8 @@ export interface BodyNode {
 export interface RowNode {
   type: 'Row';
   label: string | null;
+  labelLine: number;
+  labelColumn: number;
   document: DocumentNode;
 }
 
@@ -43,6 +44,7 @@ export type FieldValueNode = ValueNode | DocumentNode | ArrayNode;
 export interface ValueNode {
   type: 'Value';
   raw: string;
+  quoted: boolean;
 }
 
 export interface ArrayNode {
@@ -51,10 +53,22 @@ export interface ArrayNode {
 }
 
 export interface ParseOptions {
-  strict?: boolean;
+  /** Maximum nesting depth of {} and [] combined. Default 64. */
+  maxDepth?: number;
+  /** Maximum input length in UTF-8 bytes (or chars; .length is used for speed). Default 16 MiB. */
+  maxLength?: number;
+  /** Maximum number of body rows. Default 1,000,000. */
+  maxRows?: number;
 }
 
 export interface StringifyOptions {
+  /**
+   * Whether to emit row labels for object inputs.
+   * Default true. If false, an object input is treated as a single row (its values).
+   */
   rowLabels?: boolean;
-  indent?: boolean;
 }
+
+export const DEFAULT_MAX_DEPTH = 64;
+export const DEFAULT_MAX_LENGTH = 16 * 1024 * 1024;
+export const DEFAULT_MAX_ROWS = 1_000_000;

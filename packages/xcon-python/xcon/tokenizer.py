@@ -2,6 +2,8 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional
 
+from .errors import XCONParseError
+
 
 class TokenType(Enum):
     """Token types for XCON lexical analysis."""
@@ -16,6 +18,7 @@ class TokenType(Enum):
     LABEL_OR_VALUE = "LABEL_OR_VALUE"
     QUOTED_STRING = "QUOTED_STRING"
     ARRAY_MARKER = "ARRAY_MARKER"
+    DIRECTIVE = "DIRECTIVE"
     NEWLINE = "NEWLINE"
     EOF = "EOF"
 
@@ -27,10 +30,25 @@ class Token:
     value: str
     line: int
     column: int
+    quoted: bool = False
+
+
+_RESERVED_LEADING = frozenset({"@", "#", "!", "%"})
+_DELIMITERS = frozenset({",", "{", "}", "[", "]", "(", ")", ":", "\n"})
+_BARE_WORD_START = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+_BARE_WORD_CHARS = _BARE_WORD_START + "0123456789"
 
 
 def tokenize(input_text: str) -> List[Token]:
-    """Tokenize XCON text into a list of tokens."""
+    """Tokenize XCON text into a list of tokens.
+
+    - Skips a leading UTF-8 BOM if present.
+    - Reserved leading characters (@, #, !, %) raise XCONParseError in bare position.
+    - Lines beginning with '!' at line start are emitted as DIRECTIVE tokens.
+    """
+    if input_text.startswith("﻿"):
+        input_text = input_text[1:]
+
     tokens: List[Token] = []
     i = 0
     line = 1
@@ -46,89 +64,110 @@ def tokenize(input_text: str) -> List[Token]:
     def advance() -> None:
         nonlocal i, line, column
         if i < len(input_text):
-            if input_text[i] == '\n':
+            if input_text[i] == "\n":
                 line += 1
                 column = 1
             else:
                 column += 1
             i += 1
 
-    def skip_whitespace() -> None:
-        while current() and current() in ' \t\r':
+    def skip_inline_whitespace() -> None:
+        while current() in (" ", "\t", "\r"):
             advance()
 
-    def read_quoted_string(quote: str) -> str:
-        nonlocal i, line, column
-        advance()  # skip opening quote
-        value = ''
-        while current() and current() != quote:
-            if current() == '\\':
+    def read_quoted_string(quote: str, start_line: int, start_column: int) -> str:
+        advance()  # consume opening quote
+        value = ""
+        while current() is not None and current() != quote:
+            ch = current()
+            if ch == "\n":
+                raise XCONParseError(
+                    "Unterminated quoted string (newline before closing quote)",
+                    start_line,
+                    start_column,
+                )
+            if ch == "\\":
                 advance()
                 escaped = current()
-                if escaped == 'n':
-                    value += '\n'
-                elif escaped == 't':
-                    value += '\t'
-                elif escaped == '\\':
-                    value += '\\'
-                elif escaped == quote:
-                    value += quote
+                if escaped is None:
+                    raise XCONParseError(
+                        "Unterminated escape sequence in quoted string",
+                        line,
+                        column,
+                    )
+                if escaped == "n":
+                    value += "\n"
+                elif escaped == "t":
+                    value += "\t"
+                elif escaped == "\\":
+                    value += "\\"
+                elif escaped in ('"', "'"):
+                    value += escaped
                 else:
-                    value += escaped or ''
+                    value += escaped
                 advance()
             else:
-                value += current() or ''
+                value += ch or ""
                 advance()
-        if current() == quote:
+        if current() != quote:
+            raise XCONParseError(
+                f"Unterminated quoted string (expected closing {quote})",
+                start_line,
+                start_column,
+            )
+        advance()  # consume closing quote
+        return value
+
+    def read_bare_value(start_line: int, start_column: int) -> str:
+        value = ""
+        while current() is not None:
+            ch = current()
+            if ch in _DELIMITERS or ch in (" ", "\t", "\r"):
+                break
+            if ch == "\\":
+                advance()
+                escaped = current()
+                if escaped is None:
+                    raise XCONParseError(
+                        "Unterminated escape sequence in bare value",
+                        line,
+                        column,
+                    )
+                if escaped == "n":
+                    value += "\n"
+                elif escaped == "t":
+                    value += "\t"
+                elif escaped == "\\":
+                    value += "\\"
+                else:
+                    value += escaped
+                advance()
+                continue
+            if not value and ch in _RESERVED_LEADING:
+                raise XCONParseError(
+                    f"Reserved character '{ch}' at start of bare value (quote or escape it)",
+                    start_line,
+                    start_column,
+                )
+            value += ch or ""
             advance()
         return value
 
-    def read_bare_word() -> str:
-        nonlocal i
-        value = ''
-        while current() and current() in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_':
-            value += current()
+    def read_directive() -> None:
+        start_line = line
+        start_column = column
+        directive = ""
+        while current() is not None and current() != "\n":
+            directive += current() or ""
             advance()
-        # Handle float literals: if we have digits followed by a period and more digits
-        if (value and value[0].isdigit() and current() == '.' and peek() and peek().isdigit()):
-            value += current()  # add the period
-            advance()
-            while current() and current().isdigit():
-                value += current()
-                advance()
-        # Continue reading non-whitespace characters until we hit a delimiter
-        while (current() and current() not in ',{}[]():\n' and current().strip()):
-            value += current()
-            advance()
-        return value
+        tokens.append(
+            Token(TokenType.DIRECTIVE, directive, start_line, start_column, quoted=False)
+        )
 
-    def read_unquoted_value() -> str:
-        nonlocal i
-        value = ''
-        while (current() and
-               current() not in ',{}[]\n' and
-               current().strip()):  # not just whitespace
-            if current() == '\\':
-                advance()
-                escaped = current()
-                if escaped == 'n':
-                    value += '\n'
-                elif escaped == 't':
-                    value += '\t'
-                elif escaped == '\\':
-                    value += '\\'
-                elif escaped in ',:{}[]()':
-                    value += escaped or ''
-                else:
-                    value += escaped or ''
-                advance()
-            else:
-                value += current() or ''
-                advance()
-        return value.rstrip()
+    at_line_start = True
 
     while i < len(input_text):
-        skip_whitespace()
+        skip_inline_whitespace()
 
         if i >= len(input_text):
             break
@@ -137,51 +176,74 @@ def tokenize(input_text: str) -> List[Token]:
         start_line = line
         start_column = column
 
-        if ch == '(':
-            tokens.append(Token(TokenType.LPAREN, '(', start_line, start_column))
-            advance()
-        elif ch == ')':
-            tokens.append(Token(TokenType.RPAREN, ')', start_line, start_column))
-            advance()
-        elif ch == '{':
-            tokens.append(Token(TokenType.LBRACE, '{', start_line, start_column))
-            advance()
-        elif ch == '}':
-            tokens.append(Token(TokenType.RBRACE, '}', start_line, start_column))
-            advance()
-        elif ch == '[':
-            tokens.append(Token(TokenType.LBRACKET, '[', start_line, start_column))
-            advance()
-        elif ch == ']':
-            tokens.append(Token(TokenType.RBRACKET, ']', start_line, start_column))
-            advance()
-        elif ch == ':':
-            tokens.append(Token(TokenType.COLON, ':', start_line, start_column))
-            advance()
-        elif ch == ',':
-            tokens.append(Token(TokenType.COMMA, ',', start_line, start_column))
-            advance()
-        elif ch == '\n':
-            tokens.append(Token(TokenType.NEWLINE, '\n', start_line, start_column))
-            advance()
-        elif ch in '"\'':
-            value = read_quoted_string(ch)
-            tokens.append(Token(TokenType.QUOTED_STRING, value, start_line, start_column))
-        elif ch in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_':
-            value = read_bare_word()
+        if at_line_start and ch == "!":
+            read_directive()
+            continue
 
-            # Check for array marker
-            if current() == '[' and peek() == ']':
-                tokens.append(Token(TokenType.LABEL_OR_VALUE, value, start_line, start_column))
+        at_line_start = False
+
+        if ch == "(":
+            tokens.append(Token(TokenType.LPAREN, "(", start_line, start_column))
+            advance()
+        elif ch == ")":
+            tokens.append(Token(TokenType.RPAREN, ")", start_line, start_column))
+            advance()
+        elif ch == "{":
+            tokens.append(Token(TokenType.LBRACE, "{", start_line, start_column))
+            advance()
+        elif ch == "}":
+            tokens.append(Token(TokenType.RBRACE, "}", start_line, start_column))
+            advance()
+        elif ch == "[":
+            tokens.append(Token(TokenType.LBRACKET, "[", start_line, start_column))
+            advance()
+        elif ch == "]":
+            tokens.append(Token(TokenType.RBRACKET, "]", start_line, start_column))
+            advance()
+        elif ch == ":":
+            tokens.append(Token(TokenType.COLON, ":", start_line, start_column))
+            advance()
+        elif ch == ",":
+            tokens.append(Token(TokenType.COMMA, ",", start_line, start_column))
+            advance()
+        elif ch == "\n":
+            tokens.append(Token(TokenType.NEWLINE, "\n", start_line, start_column))
+            advance()
+            at_line_start = True
+        elif ch in ('"', "'"):
+            value = read_quoted_string(ch, start_line, start_column)
+            tokens.append(
+                Token(TokenType.QUOTED_STRING, value, start_line, start_column, quoted=True)
+            )
+        elif ch is not None and (ch in _BARE_WORD_CHARS or ch == "-" or ch == "\\"):
+            value = read_bare_value(start_line, start_column)
+            if current() == "[" and peek() == "]":
+                tokens.append(
+                    Token(TokenType.LABEL_OR_VALUE, value, start_line, start_column)
+                )
+                marker_line = line
+                marker_column = column
                 advance()
                 advance()
-                tokens.append(Token(TokenType.ARRAY_MARKER, '[]', line, column - 2))
+                tokens.append(
+                    Token(TokenType.ARRAY_MARKER, "[]", marker_line, marker_column)
+                )
             else:
-                tokens.append(Token(TokenType.LABEL_OR_VALUE, value, start_line, start_column))
-        else:
-            value = read_unquoted_value()
-            if value:
-                tokens.append(Token(TokenType.LABEL_OR_VALUE, value, start_line, start_column))
+                tokens.append(
+                    Token(TokenType.LABEL_OR_VALUE, value, start_line, start_column)
+                )
+        elif ch is not None:
+            if ch in _RESERVED_LEADING:
+                raise XCONParseError(
+                    f"Reserved character '{ch}' at start of bare value (quote or escape it)",
+                    start_line,
+                    start_column,
+                )
+            raise XCONParseError(
+                f"Unexpected character: '{ch}'",
+                start_line,
+                start_column,
+            )
 
-    tokens.append(Token(TokenType.EOF, '', line, column))
+    tokens.append(Token(TokenType.EOF, "", line, column))
     return tokens

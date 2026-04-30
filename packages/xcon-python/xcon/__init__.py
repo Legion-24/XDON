@@ -1,42 +1,55 @@
-"""XCON - eXtensible Compact Object Notation parser and stringifier."""
+"""XCON — eXtensible Compact Object Notation parser, stringifier, and JSON bridge."""
 
-from .parser import parse, parse_to_ast
-from .stringifier import stringify
-from .json_bridge import to_json, from_json
-from .macro import expand, MacroContext, MacroDefinition, ExpandOptions
-from .errors import XCONParseError, XCONStringifyError, XCONMacroError
 from .ast_nodes import (
-    XCONDocument,
+    ArrayNode,
+    BodyNode,
+    DocumentNode,
     HeaderNode,
     LabelNode,
-    BodyNode,
     RowNode,
-    DocumentNode,
-    ArrayNode,
     ValueNode,
+    XCONDocument,
 )
+from .errors import XCONMacroError, XCONParseError, XCONStringifyError
+from .json_bridge import from_json, to_json
+from .macro import ExpandOptions, MacroContext, MacroDefinition, expand
+from .parser import (
+    DEFAULT_MAX_DEPTH,
+    DEFAULT_MAX_LENGTH,
+    DEFAULT_MAX_ROWS,
+    ParseOptions,
+    parse,
+    parse_to_ast,
+)
+from .stringifier import stringify
+
+VERSION = "1.0.0"
+__version__ = VERSION
 
 __all__ = [
-    'parse',
-    'parse_to_ast',
-    'stringify',
-    'to_json',
-    'from_json',
-    'expand',
-    'MacroContext',
-    'MacroDefinition',
-    'ExpandOptions',
-    'XCONParseError',
-    'XCONStringifyError',
-    'XCONMacroError',
-    'XCONDocument',
-    'HeaderNode',
-    'LabelNode',
-    'BodyNode',
-    'RowNode',
-    'DocumentNode',
-    'ArrayNode',
-    'ValueNode',
+    "parse",
+    "parse_to_ast",
+    "ParseOptions",
+    "stringify",
+    "to_json",
+    "from_json",
+    "expand",
+    "ExpandOptions",
+    "MacroContext",
+    "MacroDefinition",
+    "XCONParseError",
+    "XCONStringifyError",
+    "XCONMacroError",
+    "XCONDocument",
+    "HeaderNode",
+    "LabelNode",
+    "BodyNode",
+    "RowNode",
+    "DocumentNode",
+    "ArrayNode",
+    "ValueNode",
+    "DEFAULT_MAX_DEPTH",
+    "DEFAULT_MAX_LENGTH",
+    "DEFAULT_MAX_ROWS",
+    "VERSION",
 ]
-
-__version__ = '0.1.0'

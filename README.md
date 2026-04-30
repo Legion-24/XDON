@@ -1,18 +1,17 @@
 # XCON
 
-> eXtensible Compact Object Notation — the universal data format for the schema-known world
+> eXtensible Compact Object Notation — a stable, schema-ambient text format for structured data.
 
-XCON is a schema-ambient structured data format. Because the schema is declared once and shared, payloads carry only values — no repeated keys, no structural overhead. This makes XCON 30–40% smaller than JSON as text and up to 72% smaller in binary (BXCON).
-
-XCON spans the full data stack: a compact text format, a binary wire encoding, schema declaration and versioning, a macro system with cross-language callback bindings, a streaming protocol, and a federation layer for cross-server queries.
+XCON declares the schema once and carries only values, producing payloads typically 30–40% smaller than equivalent JSON for tabular data. v1.0 ships a frozen text format, a JSON bridge, and an optional text-preprocessing macro layer.
 
 ---
 
 ## Why XCON?
 
-JSON repeats keys for every object in an array. XCON declares the schema once in a header and repeats only values, saving bytes (and tokens) on every record.
+JSON repeats keys for every object in an array. XCON declares the schema once in a header and repeats only values:
 
 **JSON** (107 tokens):
+
 ```json
 [
   {"id": 1, "name": "Alice", "role": "admin", "active": true},
@@ -22,6 +21,7 @@ JSON repeats keys for every object in an array. XCON declares the schema once in
 ```
 
 **XCON** (74 tokens — 31% fewer):
+
 ```
 (id,name,role,active)
 {1,Alice,admin,true}
@@ -29,63 +29,26 @@ JSON repeats keys for every object in an array. XCON declares the schema once in
 {3,Carol,user,true}
 ```
 
-See [benchmarks.md](./benchmarks.md) for the full methodology and cost analysis.
+See [benchmarks.md](./benchmarks.md) for methodology.
 
 ---
 
-## Layer Specification
+## What v1.0 Includes
 
-XCON is a stack of cooperating layers, each replacing existing technologies:
+| Component | Status |
+|-----------|--------|
+| **XCON/text** — text format and parser | ✅ Stable (this release) |
+| **JSON bridge** — `toJSON` / `fromJSON` | ✅ Stable |
+| **Text macros** — `%`-preprocessor (variables, parameters, expressions, built-ins) | ✅ Stable |
+| BXCON — binary wire encoding | 📋 Planned (post-v1.0) |
+| XCON/schema — schema validation | 📋 Planned |
+| XCON/decorators — `@ref`, `@lazy`, `@fn`, `@sql`, `@rest`, `@cache`, `@macro` | 📋 Planned |
+| XCON/stream — streaming protocol | 📋 Planned |
+| Adapters — fetch/express/axios/prisma | 📋 Planned |
 
-| Layer | Replaces |
-|-------|----------|
-| **XCON/text** | JSON, CSV, TOML |
-| **BXCON** (binary) | BSON, Protobuf, MessagePack |
-| **XCON/schema** | JSON Schema, Avro IDL |
-| **XCON/macros** | GraphQL resolvers, stored procedures, dbt |
-| **XCON/stream** | NDJSON, SSE, chunked JSON |
-| **XCON/lazy** | REST pagination, ORM lazy loading |
-| **XCON/fed** | Presto, Trino, ETL pipelines |
+The v1.0 backward-compatibility guarantee covers only the components marked stable. Planned layers will be additive and will not change v1.0 syntax.
 
----
-
-## Use Cases
-
-### REST API payloads
-Schema declared at endpoint root, responses carry only values. Cuts payload size 30–40% and removes per-row JSON parsing overhead.
-*Replaces:* JSON-over-REST.
-
-### SQL result sets
-The query columns *are* the XCON header — a database result is XCON natively, no transcoding to JSON object-per-row.
-*Replaces:* JSON serialization of cursor results.
-
-### LLM tool calls and context
-Schemas declared in the system prompt, tool calls and structured outputs encode only values. Reduces tokens per call by 20–35% and replaces verbose semi-XML system prompts.
-*Replaces:* JSON tool call format, ad-hoc XML-tagged context.
-
-### MCP protocol payloads
-Tool definitions and results travel as XCON. Header negotiation happens once at session start.
-*Replaces:* JSON-RPC body in MCP.
-
-### Binary wire encoding (BXCON)
-Header-prefix byte stream — type tags, varint lengths, no field names. 60–72% smaller than JSON, faster to decode than Protobuf when the schema is shared out-of-band.
-*Replaces:* BSON, Protobuf, MessagePack.
-
-### Streaming result sets
-Header sent once, rows stream with row labels for out-of-order reassembly. Pause/resume without resync.
-*Replaces:* NDJSON, SSE-with-JSON-payloads, chunked JSON.
-
-### Database storage format
-Document + relational hybrid: rows share a schema header, sub-documents nest under field declarations. Sharding works via root metadata + `@ref` expansion.
-*Replaces:* BSON in document stores; row-format in relational stores.
-
-### Server-driven UI / component trees
-A component tree is just a typed tree. XCON encodes it with the schema as the component registry.
-*Replaces:* JSON component descriptors.
-
-### Federated cross-database queries
-A query result from one server can `@ref` another server. Macros compose across federation boundaries — the client lazily expands references on demand.
-*Replaces:* Presto, Trino, custom ETL.
+See [SPEC.md](./SPEC.md) for the formal specification and [MACROS.md](./MACROS.md) for the macro reference.
 
 ---
 
@@ -97,24 +60,24 @@ alice:{Alice,[admin,developer],{NYC,10001}}
 bob:{Bob,[user],{LA,90001}}
 ```
 
-- **Header** `(...)` — declares field names and types once
-- **Row label** `alice:` — optional key; produces an object if present, array if absent
-- **Arrays** `[...]` — declared with `[]` suffix in the header
-- **Nested objects** `(sub,fields)` — sub-schemas declared inline
-- **Types** — inferred from bare values: `true`/`false`, integers, floats, `null`, strings
-
-See [SPEC.md](./SPEC.md) for the full grammar.
+- **Header** `(...)` — declares field names once.
+- **Row label** `alice:` — optional key; produces an object when present, an array when absent.
+- **Arrays** `[...]` — declared with `[]` suffix in the header.
+- **Nested objects** `(sub,fields)` — sub-schemas declared inline.
+- **Types** — inferred from bare values: `null`, `true`/`false`, integers, floats, strings.
 
 ---
 
 ## Installation
 
 **JavaScript / TypeScript**
+
 ```bash
 npm install @legion24/xcon
 ```
 
 **Python**
+
 ```bash
 pip install xcon
 ```
@@ -123,10 +86,10 @@ pip install xcon
 
 ## Usage
 
-### JavaScript / TypeScript
+### TypeScript
 
 ```ts
-import { parse, stringify } from '@legion24/xcon';
+import { parse, stringify, toJSON, fromJSON, expand, VERSION } from '@legion24/xcon';
 
 const data = [
   { name: 'Alice', role: 'admin', active: true },
@@ -139,12 +102,22 @@ const xcon = stringify(data);
 // {Bob,user,false}
 
 const parsed = parse(xcon);
+
+// JSON bridge:
+const json = toJSON(xcon);
+const back = fromJSON(json);
+
+// Macros (preprocessing):
+const expanded = expand('%h = "(name,age)"\n%h\n{Alice,30}');
+const data2 = parse(expanded);
+
+console.log(VERSION); // "1.0.0"
 ```
 
 ### Python
 
 ```python
-from xcon import parse, stringify
+from xcon import parse, stringify, to_json, from_json, expand, VERSION
 
 data = [
     {"name": "Alice", "role": "admin", "active": True},
@@ -153,66 +126,87 @@ data = [
 
 xcon = stringify(data)
 parsed = parse(xcon)
+
+# JSON bridge:
+js = to_json(xcon)
+back = from_json(js)
+
+# Macros:
+expanded = expand('%h = "(name,age)"\n%h\n{Alice,30}')
+data2 = parse(expanded)
+
+print(VERSION)  # "1.0.0"
 ```
 
 ---
 
-## JSON Adapter
+## Parser Options
 
-XCON ships with a bidirectional JSON bridge. The adapter guarantees:
-
-```ts
-XCON.toJSON(XCON.fromJSON(x)) deepEquals x   // round-trip safe
-```
-
-- **Schema inference** — first JSON response infers an XCON schema and caches it for the endpoint
-- **Content-type negotiation** — clients send `Accept: application/xcon, application/json;q=0.9`; servers fall back to JSON when XCON isn't supported
-- **Drop-in adapters** — wrappers for `fetch`, `express`, `axios`, and `prisma` make XCON adoption a one-line change at the I/O boundary
+Both implementations support DoS-protection limits and reserved-character validation:
 
 ```ts
-// fetch
-import { xconFetch } from '@legion24/xcon/adapters/fetch';
-const users = await xconFetch('/api/users').then(r => r.json());
-
-// express
-import { xcon } from '@legion24/xcon/adapters/express';
-app.use(xcon());   // negotiates content-type, transcodes responses
-
-// axios
-import { xconAxios } from '@legion24/xcon/adapters/axios';
-const client = xconAxios.create({ baseURL: '/api' });
-
-// prisma
-import { xconResults } from '@legion24/xcon/adapters/prisma';
-const rows = xconResults(await prisma.user.findMany());
+parse(input, {
+  maxDepth: 64,        // max nesting of {} and [] (default 64)
+  maxLength: 16 << 20, // max input bytes (default 16 MiB)
+  maxRows: 1_000_000,  // max rows (default 1M)
+});
 ```
+
+```python
+from xcon import parse, ParseOptions
+parse(input_text, ParseOptions(max_depth=64, max_length=16 * 1024 * 1024, max_rows=1_000_000))
+```
+
+Exceeding any limit raises a parse error.
+
+---
+
+## JSON Bridge
+
+XCON ships with a bidirectional JSON bridge:
+
+```ts
+import { toJSON, fromJSON } from '@legion24/xcon';
+
+JSON.parse(toJSON(xconText));   // → JS value
+fromJSON(JSON.stringify(value)) // → XCON text
+```
+
+For values composed of JSON-typed scalars, arrays, and string-keyed objects, round-trip is lossless: `parse(fromJSON(JSON.stringify(x)))` deep-equals `x`.
 
 ---
 
 ## Macros
 
-Macros run before parsing and bind to callbacks across JS, Python, and Rust. The full reference is in [MACROS.md](./MACROS.md).
-
-| Macro | Purpose |
-|-------|---------|
-| `@ref` | Lazy field references |
-| `@lazy` | Deferred expansion strategies |
-| `@fn` | Function definitions, callback binding |
-| `@sql` | SQL source macros |
-| `@rest` | REST source macros |
-| `@cache` | Caching decorator macros |
-| `@macro` | Ambient context injection |
+Macros run **before** parsing. Full reference in [MACROS.md](./MACROS.md).
 
 ```ts
-const x = `
+const xcon = `
 %row(id,name,email) = "{id,name,email}"
 
 (id,name,email)
 emp1:%row(1,Alice,alice@example.com)
 emp2:%row(2,Bob,bob@example.com)
 `;
-const expanded = expand(x);
+const expanded = expand(xcon);
 ```
+
+Built-ins: `%_DATE_STR`, `%_TIME_STR`, `%_DATETIME_STR`, `%_TIMESTAMP`, `%_DAY_STR`, `%_UUID`, `%_ENV(VAR)` (opt-in via `envAllowlist`).
+
+---
+
+## Reserved Characters
+
+v1.0 reserves `@`, `#`, `!`, `%` at the **leading position** of bare values for future XCON layers. To use these as content, quote or escape:
+
+```
+{"@alice"}        ✅ quoted
+{\@alice}         ✅ escaped
+{@alice}          ❌ parse error in v1.0
+{user@example.com}✅ @ is mid-value, not leading
+```
+
+This reservation guarantees that future XCON revisions can introduce syntax beginning with these characters without invalidating v1.0 documents.
 
 ---
 
@@ -223,11 +217,22 @@ const expanded = expand(x);
 | `@legion24/xcon` | TypeScript / JavaScript | [`packages/xcon`](./packages/xcon) |
 | `xcon` | Python | [`packages/xcon-python`](./packages/xcon-python) |
 
+Both implementations conform to the same v1.0 specification and produce equivalent output for all valid inputs.
+
+---
+
+## Versioning
+
+- **v1.x** — backward-compatible additions only. Every v1.0 document parses identically under any v1.x parser.
+- **v2.0+** — only a major version bump may break v1.0 syntax, and only after a deprecation cycle.
+
+See [SPEC.md § Versioning Policy](./SPEC.md#versioning-policy).
+
 ---
 
 ## Contributing
 
-Issues and PRs are welcome. Read [SPEC.md](./SPEC.md) before contributing to the parser — the spec is the source of truth.
+Issues and PRs welcome. Read [SPEC.md](./SPEC.md) before contributing to a parser — the spec is the source of truth, and parser behavior must match it.
 
 ---
 

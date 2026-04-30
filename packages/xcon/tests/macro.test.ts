@@ -299,10 +299,23 @@ describe('macro: spec-defined macros', () => {
     expect(result).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 
-  test('_ENV macro is available', () => {
+  test('_ENV macro returns empty by default (opt-in via allowlist)', () => {
     const input = '%_ENV(PATH)';
     const result = expand(input);
-    expect(result).toBeTruthy();
+    expect(result).toBe('');
+  });
+
+  test('_ENV macro respects allowlist', () => {
+    const input = '%_ENV(PATH)';
+    const result = expand(input, { envAllowlist: ['PATH'] });
+    const pathEnv: string = ((globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.PATH) ?? '';
+    expect(result).toBe(pathEnv);
+  });
+
+  test('_ENV macro returns empty for vars not on allowlist', () => {
+    const input = '%_ENV(PATH)';
+    const result = expand(input, { envAllowlist: ['NODE_ENV'] });
+    expect(result).toBe('');
   });
 
   test('spec macros in simple form', () => {

@@ -262,14 +262,40 @@ class TestSpecDefinedMacros:
         result = expand('%_UUID')
         assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', result, re.I)
 
-    def test_env_reads_environment_variable(self):
+    def test_env_returns_empty_by_default(self):
+        # v1.0 makes _ENV opt-in via env_allowlist
         import os
         os.environ['TEST_VAR_MACRO'] = 'test_value_123'
         result = expand('%_ENV(TEST_VAR_MACRO)')
+        assert result == ''
+
+    def test_env_reads_when_allowlisted(self):
+        from xcon import ExpandOptions
+        import os
+        os.environ['TEST_VAR_MACRO'] = 'test_value_123'
+        result = expand('%_ENV(TEST_VAR_MACRO)', ExpandOptions(env_allowlist=['TEST_VAR_MACRO']))
         assert result == 'test_value_123'
 
+    def test_env_blocks_non_allowlisted(self):
+        from xcon import ExpandOptions
+        import os
+        os.environ['TEST_VAR_MACRO'] = 'test_value_123'
+        result = expand('%_ENV(TEST_VAR_MACRO)', ExpandOptions(env_allowlist=['SOMETHING_ELSE']))
+        assert result == ''
+
+    def test_env_wildcard_allows_all(self):
+        from xcon import ExpandOptions
+        import os
+        os.environ['TEST_VAR_MACRO_2'] = 'wildcard_value'
+        result = expand('%_ENV(TEST_VAR_MACRO_2)', ExpandOptions(env_allowlist='*'))
+        assert result == 'wildcard_value'
+
     def test_env_returns_empty_for_undefined(self):
-        result = expand('%_ENV(UNDEFINED_VAR_THAT_SHOULD_NOT_EXIST_XYZ)')
+        from xcon import ExpandOptions
+        result = expand(
+            '%_ENV(UNDEFINED_VAR_THAT_SHOULD_NOT_EXIST_XYZ)',
+            ExpandOptions(env_allowlist=['UNDEFINED_VAR_THAT_SHOULD_NOT_EXIST_XYZ']),
+        )
         assert result == ''
 
     def test_spec_macros_in_simple_form(self):
