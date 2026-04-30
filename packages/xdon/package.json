@@ -1,7 +1,7 @@
 {
   "name": "@legion24/xdon",
   "version": "1.0.0-beta.1",
-  "description": "XDON parser, stringifier, and JSON bridge — eXtensible Compact Object Notation",
+  "description": "XDON (eXtensible Data Object Notation) — schema-ambient compact text format. 30–40% smaller than JSON for tabular data. Parser, stringifier, JSON bridge, and macro preprocessor.",
   "type": "module",
   "main": "./dist/cjs/index.cjs",
   "module": "./dist/esm/index.js",
@@ -14,7 +14,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/rename-cjs.js",
@@ -24,14 +26,33 @@
   },
   "keywords": [
     "xdon",
-    "language-model",
-    "notation",
     "json",
+    "notation",
     "parser",
-    "structured-data"
+    "stringifier",
+    "structured-data",
+    "schema",
+    "compact",
+    "language-model",
+    "llm-tokens"
   ],
   "author": "Legion 24",
   "license": "MIT",
+  "homepage": "https://github.com/Legion-24/XDON#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Legion-24/XDON.git",
+    "directory": "packages/xdon"
+  },
+  "bugs": {
+    "url": "https://github.com/Legion-24/XDON/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
