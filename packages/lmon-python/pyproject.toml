@@ -37,7 +37,6 @@ packages = ["lmon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=lmon --cov-report=term-missing --cov-report=html"
 
 [tool.mypy]
 python_version = "3.10"
