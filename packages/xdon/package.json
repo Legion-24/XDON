@@ -52,7 +52,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",

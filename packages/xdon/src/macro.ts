@@ -269,7 +269,7 @@ function decodeEscapes(s: string): string {
 }
 
 function generateUUID(): string {
-  // Requires globalThis.crypto.randomUUID — Node 18+ and all modern browsers.
+  // Requires globalThis.crypto.randomUUID — Node 19+ and all modern browsers.
   return (globalThis as unknown as { crypto: { randomUUID: () => string } }).crypto.randomUUID();
 }
 
