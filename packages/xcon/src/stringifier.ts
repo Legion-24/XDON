@@ -1,5 +1,5 @@
-import { StringifyOptions } from './ast';
-import { XCONStringifyError } from './errors';
+import { StringifyOptions } from './ast.js';
+import { XCONStringifyError } from './errors.js';
 
 interface SchemaField {
   name: string;
@@ -60,12 +60,12 @@ function stringifyObject(
   rowLabels: boolean,
   seen: WeakSet<object>,
 ): string {
-  if (seen.has(obj)) {
-    throw new XCONStringifyError('Cyclic reference in input');
-  }
   seen.add(obj);
   const entries = Object.entries(obj);
-  if (entries.length === 0) return '';
+  if (entries.length === 0) {
+    seen.delete(obj);
+    return '';
+  }
 
   // Determine if all values are objects -> headered schema
   const allValuesObjects = entries.every(
@@ -101,8 +101,9 @@ function stringifyObject(
   // No row labels — treat the whole object as a single row
   const schema = inferSchema(obj);
   const headerLine = formatHeader(schema);
-  const row = formatDocumentBySchema(obj, schema, seen);
+  // Remove `obj` from seen before passing to the schema-formatter so it can re-enter.
   seen.delete(obj);
+  const row = formatDocumentBySchema(obj, schema, seen);
   return headerLine ? `${headerLine}\n${row}` : row;
 }
 

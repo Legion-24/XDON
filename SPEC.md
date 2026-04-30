@@ -1,10 +1,12 @@
 # XCON Specification v1.0.0
 
+> **Status: public-review beta (`1.0.0-beta.1`).** This document is the proposed v1.0 specification. The grammar, type-inference rules, output semantics, and reserved-character set are **proposed-frozen**: any change before the final v1.0 tag will be flagged in [CHANGELOG.md](./CHANGELOG.md) as `BETA-BREAKING`. We are actively soliciting feedback during the public-review window — please open an issue with concerns about ambiguity, edge cases, naming, or extensibility before the tag.
+
 ## Overview
 
 **XCON** (eXtensible Compact Object Notation) is a schema-ambient structured data format. The schema is declared once in a header, and the body carries only values, producing payloads typically 30–40% smaller than equivalent JSON text.
 
-This document defines **XCON v1.0.0**, the stable text format. v1.0.0 is **frozen** — conforming parsers will continue to accept v1.0.0 documents indefinitely. Future evolution happens through the reserved-character namespace (see [Extensibility](#extensibility-and-reserved-characters)) and through optional version directives (see [Version Directive](#version-directive)).
+This document defines **XCON v1.0.0**, the stable text format. Once `1.0.0` final is tagged, conforming parsers will continue to accept v1.0.0 documents indefinitely. Future evolution happens through the reserved-character namespace (see [Extensibility](#extensibility-and-reserved-characters)) and through optional version directives (see [Version Directive](#version-directive)).
 
 The XCON family also includes additional layers that are **not part of v1.0** and will be specified separately as they stabilize:
 

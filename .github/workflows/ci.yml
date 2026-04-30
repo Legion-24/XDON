@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ts:
+    name: TypeScript (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    defaults:
+      run:
+        working-directory: packages/xcon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Test (with coverage)
+        run: pnpm test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Smoke-test built artifact (ESM)
+        run: |
+          node -e "
+          import('./dist/esm/index.js').then(m => {
+            if (m.VERSION !== '1.0.0-beta.1') { console.error('VERSION mismatch:', m.VERSION); process.exit(1); }
+            const out = m.parse('(a)\\n{1}');
+            if (JSON.stringify(out) !== '[{\"a\":1}]') { console.error('parse mismatch:', JSON.stringify(out)); process.exit(1); }
+            console.log('ESM smoke OK');
+          });
+          "
+
+      - name: Smoke-test built artifact (CJS)
+        run: |
+          node -e "
+          const m = require('./dist/cjs/index.cjs');
+          if (m.VERSION !== '1.0.0-beta.1') { console.error('VERSION mismatch:', m.VERSION); process.exit(1); }
+          const out = m.parse('(a)\n{1}');
+          if (JSON.stringify(out) !== '[{\"a\":1}]') { console.error('parse mismatch:', JSON.stringify(out)); process.exit(1); }
+          console.log('CJS smoke OK');
+          "
+
+  python:
+    name: Python (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13']
+    defaults:
+      run:
+        working-directory: packages/xcon-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Test
+        run: pytest --cov=xcon --cov-report=term
+
+      - name: Mypy strict
+        run: mypy xcon
+
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Smoke-test wheel install
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          /tmp/smoke/bin/python -c "
+          from xcon import parse, stringify, VERSION
+          assert VERSION == '1.0.0-beta.1', f'VERSION mismatch: {VERSION}'
+          assert parse('(a)\n{1}') == [{'a': 1}], f'parse mismatch'
+          print('Python smoke OK')
+          "
+
+  cross-impl-conformance:
+    name: Cross-impl conformance check
+    runs-on: ubuntu-latest
+    needs: [ts, python]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm both packages tagged the same beta version
+        run: |
+          ts_version=$(node -p "require('./packages/xcon/package.json').version")
+          py_version=$(grep '^version' packages/xcon-python/pyproject.toml | sed -E 's/.*"(.+)"/\1/')
+          echo "TS:     $ts_version"
+          echo "Python: $py_version"
+          # Python uses 1.0.0b1, TS uses 1.0.0-beta.1; verify they agree on the beta ordinal.
+          if [[ "$ts_version" != "1.0.0-beta.1" ]]; then echo "TS version drift"; exit 1; fi
+          if [[ "$py_version" != "1.0.0b1" ]]; then echo "Python version drift"; exit 1; fi

@@ -1,4 +1,4 @@
-import { XCONParseError } from './errors';
+import { XCONParseError } from './errors.js';
 
 export enum TokenType {
   LPAREN = 'LPAREN',
@@ -31,8 +31,6 @@ const DELIMITERS = new Set([',', '{', '}', '[', ']', '(', ')', ':', '\n']);
 
 const isBareWordStart = (ch: string): boolean =>
   (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_';
-const isBareWordChar = (ch: string): boolean =>
-  isBareWordStart(ch) || (ch >= '0' && ch <= '9');
 const isDigit = (ch: string): boolean => ch >= '0' && ch <= '9';
 
 /**
@@ -113,7 +111,7 @@ export function tokenize(input: string): Token[] {
     return value;
   };
 
-  const readBareValue = (startLine: number, startColumn: number): string => {
+  const readBareValue = (): string => {
     let value = '';
     while (current() !== undefined) {
       const ch = current()!;
@@ -135,13 +133,6 @@ export function tokenize(input: string): Token[] {
         else value += escaped;
         advance();
         continue;
-      }
-      if (value.length === 0 && RESERVED_LEADING.has(ch)) {
-        throw new XCONParseError(
-          `Reserved character '${ch}' at start of bare value (quote or escape it)`,
-          startLine,
-          startColumn,
-        );
       }
       value += ch;
       advance();
@@ -230,7 +221,7 @@ export function tokenize(input: string): Token[] {
       });
     } else if (ch !== undefined && (isBareWordStart(ch) || isDigit(ch) || ch === '-' || ch === '\\')) {
       // Bare value — letter/digit/underscore/minus/backslash-escape
-      const value = readBareValue(startLine, startColumn);
+      const value = readBareValue();
       // Check for array marker [] following an identifier-shaped value
       if (current() === '[' && peek() === ']') {
         tokens.push({
@@ -280,15 +271,4 @@ export function tokenize(input: string): Token[] {
   tokens.push({ type: TokenType.EOF, value: '', line, column, quoted: false });
 
   return tokens;
-}
-
-/** Verify that a quoted string never appears as a bare value if it contains
- * digits-only or matches a literal — used by parser to honor quoted-vs-bare. */
-export function isBareWord(s: string): boolean {
-  if (s.length === 0) return false;
-  if (!isBareWordStart(s[0]!)) return false;
-  for (let k = 1; k < s.length; k++) {
-    if (!isBareWordChar(s[k]!)) return false;
-  }
-  return true;
 }

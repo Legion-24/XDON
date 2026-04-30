@@ -1,6 +1,8 @@
 # XCON
 
-> eXtensible Compact Object Notation — a stable, schema-ambient text format for structured data.
+> eXtensible Compact Object Notation — a schema-ambient text format for structured data.
+
+> **Public-review beta — `1.0.0-beta.1`.** The grammar and semantics described here are **proposed-frozen** for the v1.0 stability guarantee. We're soliciting feedback from real users before tagging `1.0.0` final. Please open an issue with feedback on spec ambiguity, naming, parser edge cases, or extensibility concerns. See [CHANGELOG.md](./CHANGELOG.md) for the migration from `0.1.0`.
 
 XCON declares the schema once and carries only values, producing payloads typically 30–40% smaller than equivalent JSON for tabular data. v1.0 ships a frozen text format, a JSON bridge, and an optional text-preprocessing macro layer.
 
@@ -73,14 +75,16 @@ bob:{Bob,[user],{LA,90001}}
 **JavaScript / TypeScript**
 
 ```bash
-npm install @legion24/xcon
+npm install @legion24/xcon@beta
 ```
 
 **Python**
 
 ```bash
-pip install xcon
+pip install --pre xcon
 ```
+
+(Both packages publish under the `beta` / pre-release tag during the public-review window. Once `1.0.0` final is tagged, drop the `@beta` / `--pre` flag.)
 
 ---
 

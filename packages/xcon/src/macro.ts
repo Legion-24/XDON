@@ -1,4 +1,4 @@
-import { XCONMacroError } from './errors';
+import { XCONMacroError } from './errors.js';
 
 export interface MacroDefinition {
   body: string;
@@ -269,28 +269,8 @@ function decodeEscapes(s: string): string {
 }
 
 function generateUUID(): string {
-  // Prefer crypto.randomUUID when available (Node 19+, browsers)
-  const g: any = globalThis as any;
-  if (g.crypto && typeof g.crypto.randomUUID === 'function') {
-    return g.crypto.randomUUID();
-  }
-  const rand = (): number => {
-    if (g.crypto && typeof g.crypto.getRandomValues === 'function') {
-      const a = new Uint8Array(1);
-      g.crypto.getRandomValues(a);
-      return a[0]!;
-    }
-    return Math.floor(Math.random() * 256);
-  };
-  const bytes = new Array(16).fill(0).map(() => rand());
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
+  // Requires globalThis.crypto.randomUUID — Node 18+ and all modern browsers.
+  return (globalThis as unknown as { crypto: { randomUUID: () => string } }).crypto.randomUUID();
 }
 
 function expandBuiltin(name: string, args: string[] | null, allowlist: Set<string> | 'all'): string {
@@ -299,7 +279,7 @@ function expandBuiltin(name: string, args: string[] | null, allowlist: Set<strin
     return now.toISOString().split('T')[0] || '';
   }
   if (name === '_TIME_STR') {
-    return `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}:${pad2(now.getUTCSeconds())}`;
+    return now.toISOString().slice(11, 19);
   }
   if (name === '_DATETIME_STR') {
     return now.toISOString();

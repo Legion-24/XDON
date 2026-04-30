@@ -29,7 +29,7 @@ def stringify(obj: Any, row_labels: bool = True) -> str:
     return "{" + _format_scalar(obj, seen) + "}"
 
 
-def _stringify_array(arr: list, seen: Set[int]) -> str:
+def _stringify_array(arr: List[Any], seen: Set[int]) -> str:
     if not arr:
         return ""
 

@@ -1,5 +1,7 @@
 # XCON Benchmarks: Compression & Token Efficiency
 
+> **Status: numbers from the v1.0-beta.1 text format.** All measurements compare XCON/text to JSON. The planned BXCON binary encoding is a separate future layer and is not measured here.
+
 ## Overview
 
 This document presents comprehensive benchmarking results comparing **XCON** (eXtensible Compact Object Notation) to **JSON** across multiple dimensions: byte size, character count, and token usage via real LLM tokenizers.

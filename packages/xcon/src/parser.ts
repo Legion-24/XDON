@@ -12,10 +12,10 @@ import {
   DEFAULT_MAX_DEPTH,
   DEFAULT_MAX_LENGTH,
   DEFAULT_MAX_ROWS,
-} from './ast';
-import { tokenize, Token, TokenType } from './tokenizer';
-import { XCONParseError } from './errors';
-import { inferType } from './evaluator';
+} from './ast.js';
+import { tokenize, Token, TokenType } from './tokenizer.js';
+import { XCONParseError } from './errors.js';
+import { inferType } from './evaluator.js';
 
 const SUPPORTED_VERSION_MAJOR = 1;
 
@@ -500,8 +500,5 @@ function evaluateFieldValue(
   if (field.type === 'Array') {
     return field.items.map((item) => evaluateFieldValue(item, schema, line, column));
   }
-  if (field.type === 'Document') {
-    return evaluateDocument(field, schema, line, column);
-  }
-  return null;
+  return evaluateDocument(field, schema, line, column);
 }

@@ -1,6 +1,6 @@
 {
   "name": "@legion24/xcon",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.1",
   "description": "XCON parser, stringifier, and JSON bridge — eXtensible Compact Object Notation",
   "type": "module",
   "main": "./dist/cjs/index.cjs",

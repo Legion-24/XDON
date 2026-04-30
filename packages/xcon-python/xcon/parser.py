@@ -176,10 +176,11 @@ class Parser:
         label_line = self.current().line
         label_column = self.current().column
 
+        next_tok = self.peek()
         if (
             self.current().type in (TokenType.LABEL_OR_VALUE, TokenType.QUOTED_STRING)
-            and self.peek() is not None
-            and self.peek().type == TokenType.COLON
+            and next_tok is not None
+            and next_tok.type == TokenType.COLON
         ):
             label_tok = self.advance()
             label = label_tok.value
@@ -338,13 +339,13 @@ def parse_to_ast(input_text: str, options: Optional[ParseOptions] = None) -> XCO
 
 def parse(
     input_text: str, options: Optional[ParseOptions] = None
-) -> Union[Dict[str, Any], list]:
+) -> Union[Dict[str, Any], List[Any]]:
     """Parse XCON text to a Python object."""
     ast = parse_to_ast(input_text, options)
     return evaluate(ast)
 
 
-def evaluate(doc: XCONDocument) -> Union[Dict[str, Any], list]:
+def evaluate(doc: XCONDocument) -> Union[Dict[str, Any], List[Any]]:
     """Evaluate AST to a Python object."""
     if not doc.body.rows:
         return {} if doc.header else []
@@ -374,7 +375,7 @@ def evaluate(doc: XCONDocument) -> Union[Dict[str, Any], list]:
             result[row.label] = value
         return result
 
-    array_result: list = []
+    array_result: List[Any] = []
     for row in doc.body.rows:
         array_result.append(
             evaluate_document(row.document, schema, row.label_line, row.label_column)
@@ -387,7 +388,7 @@ def evaluate_document(
     schema: List[LabelNode],
     line: int,
     column: int,
-) -> Union[Dict[str, Any], list]:
+) -> Union[Dict[str, Any], List[Any]]:
     """Evaluate a document node."""
     if not doc.fields:
         return []

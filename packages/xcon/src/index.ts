@@ -1,10 +1,10 @@
-export { parse, parseToAST } from './parser';
-export { stringify } from './stringifier';
-export { toJSON, fromJSON } from './json';
-export { expand } from './macro';
-export { inferType } from './evaluator';
-export { tokenize, TokenType } from './tokenizer';
-export { XCONParseError, XCONStringifyError, XCONMacroError } from './errors';
+export { parse, parseToAST } from './parser.js';
+export { stringify } from './stringifier.js';
+export { toJSON, fromJSON } from './json.js';
+export { expand } from './macro.js';
+export { inferType } from './evaluator.js';
+export { tokenize, TokenType } from './tokenizer.js';
+export { XCONParseError, XCONStringifyError, XCONMacroError } from './errors.js';
 export type {
   XCONDocument,
   HeaderNode,
@@ -17,8 +17,8 @@ export type {
   FieldValueNode,
   ParseOptions,
   StringifyOptions,
-} from './ast';
-export type { Token } from './tokenizer';
-export type { MacroContext, MacroDefinition, ExpandOptions } from './macro';
+} from './ast.js';
+export type { Token } from './tokenizer.js';
+export type { MacroContext, MacroDefinition, ExpandOptions } from './macro.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.0-beta.1';
