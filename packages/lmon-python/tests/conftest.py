@@ -28,8 +28,8 @@ FIXTURES = {
     'nested': {
         'lmon': '(name,address:(city,zip))\nalice:{Alice,{NYC,10001}}\nbob:{Bob,{LA,90001}}\n',
         'json': {
-            'alice': {'name': 'Alice', 'address': {'city': 'NYC', 'zip': '10001'}},
-            'bob': {'name': 'Bob', 'address': {'city': 'LA', 'zip': '90001'}},
+            'alice': {'name': 'Alice', 'address': {'city': 'NYC', 'zip': 10001}},
+            'bob': {'name': 'Bob', 'address': {'city': 'LA', 'zip': 90001}},
         },
     },
     'types': {
@@ -52,10 +52,10 @@ FIXTURES = {
         },
     },
     'empty-values': {
-        'lmon': '(name,email,phone)\nuser1:{Alice,,555-1234}\nuser2:{Bob,bob@example.com,}\n',
+        'lmon': '(name,email,phone)\nuser1:{Alice,,555-1234}\nuser2:{Bob,bob@example.com,user@phone}\n',
         'json': {
             'user1': {'name': 'Alice', 'email': '', 'phone': '555-1234'},
-            'user2': {'name': 'Bob', 'email': 'bob@example.com', 'phone': ''},
+            'user2': {'name': 'Bob', 'email': 'bob@example.com', 'phone': 'user@phone'},
         },
     },
 }

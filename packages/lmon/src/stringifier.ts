@@ -37,6 +37,14 @@ function stringifyArray(arr: unknown[], rowLabels: boolean): string {
     return headerLine ? `${headerLine}\n${rows}` : rows;
   }
 
+  // Array of arrays (no header)
+  if (Array.isArray(first)) {
+    const rows = arr
+      .map((item) => formatDocument(item as unknown[], []))
+      .join('\n');
+    return rows;
+  }
+
   // Array of scalars
   const docStr = formatDocument(arr, []);
   return docStr;

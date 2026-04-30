@@ -89,6 +89,17 @@ def tokenize(input_text: str) -> List[Token]:
         while current() and current() in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_':
             value += current()
             advance()
+        # Handle float literals: if we have digits followed by a period and more digits
+        if (value and value[0].isdigit() and current() == '.' and peek() and peek().isdigit()):
+            value += current()  # add the period
+            advance()
+            while current() and current().isdigit():
+                value += current()
+                advance()
+        # Continue reading non-whitespace characters until we hit a delimiter
+        while (current() and current() not in ',{}[]():\n' and current().strip()):
+            value += current()
+            advance()
         return value
 
     def read_unquoted_value() -> str:

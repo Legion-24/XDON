@@ -73,6 +73,32 @@ export function tokenize(input: string): Token[] {
       value += current();
       advance();
     }
+    // Handle float literals: if we have digits followed by a period and more digits
+    if (value && /^\d/.test(value) && current() === '.' && peek() && /\d/.test(peek()!)) {
+      value += current();
+      advance();
+      while (current() && /\d/.test(current()!)) {
+        value += current();
+        advance();
+      }
+    }
+    // Continue reading non-whitespace characters until we hit a delimiter
+    while (
+      current() &&
+      current() !== ',' &&
+      current() !== '{' &&
+      current() !== '}' &&
+      current() !== '[' &&
+      current() !== ']' &&
+      current() !== '(' &&
+      current() !== ')' &&
+      current() !== ':' &&
+      current() !== '\n' &&
+      /\S/.test(current()!)
+    ) {
+      value += current();
+      advance();
+    }
     return value;
   };
 

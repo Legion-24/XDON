@@ -29,6 +29,13 @@ def stringify_array(arr: list) -> str:
 
         return f"{header_line}\n{rows}" if header_line else rows
 
+    # Array of arrays (no header)
+    if isinstance(first, list):
+        rows = "\n".join(
+            format_document(item, []) for item in arr
+        )
+        return rows
+
     # Array of scalars
     doc_str = format_document(arr, [])
     return doc_str
