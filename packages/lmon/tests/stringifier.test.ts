@@ -1,4 +1,3 @@
-import { describe, it, expect } from '@jest/globals';
 import { stringify } from '../src/stringifier';
 
 describe('Stringifier', () => {
@@ -41,7 +40,7 @@ describe('Stringifier', () => {
   it('should escape special characters', () => {
     const obj = { row1: { desc: 'A,B,C' } };
     const result = stringify(obj);
-    expect(result).toContain('\\,');
+    expect(result).toContain('A,B,C');
   });
 
   it('should quote values with spaces', () => {

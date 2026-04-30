@@ -1,4 +1,3 @@
-import { describe, it, expect } from '@jest/globals';
 import { toJSON, fromJSON } from '../src/json';
 import { parse } from '../src/parser';
 
@@ -21,7 +20,7 @@ describe('JSON Bridge', () => {
   it('should round-trip via toJSON', () => {
     const lmon = '(name,age)\nalice:{Alice,30}';
     const json = toJSON(lmon);
-    const reparsed = parse(json);
+    const reparsed = JSON.parse(json);
     expect(reparsed.alice.name).toBe('Alice');
   });
 
@@ -29,8 +28,8 @@ describe('JSON Bridge', () => {
     const obj = { user1: { name: 'Alice', age: 30 } };
     const json = JSON.stringify(obj);
     const lmon = fromJSON(json);
-    const parsed = parse(lmon);
-    expect(parsed.user1.name).toBe('Alice');
+    const parsed = parse(lmon) as Record<string, unknown>;
+    expect((parsed.user1 as Record<string, unknown>).name).toBe('Alice');
   });
 
   it('should handle arrays in JSON', () => {

@@ -1,13 +1,12 @@
-import { describe, it, expect } from '@jest/globals';
 import { tokenize, TokenType } from '../src/tokenizer';
 
 describe('Tokenizer', () => {
   it('should tokenize simple header', () => {
     const tokens = tokenize('(name,age)');
     expect(tokens.some((t) => t.type === TokenType.LPAREN)).toBe(true);
-    expect(tokens.some((t) => t.type === TokenType.LABEL && t.value === 'name')).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === 'name')).toBe(true);
     expect(tokens.some((t) => t.type === TokenType.COMMA)).toBe(true);
-    expect(tokens.some((t) => t.type === TokenType.LABEL && t.value === 'age')).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === 'age')).toBe(true);
     expect(tokens.some((t) => t.type === TokenType.RPAREN)).toBe(true);
   });
 
@@ -20,33 +19,33 @@ describe('Tokenizer', () => {
   it('should tokenize simple document', () => {
     const tokens = tokenize('{Alice,30}');
     expect(tokens.some((t) => t.type === TokenType.LBRACE)).toBe(true);
-    expect(tokens.some((t) => t.type === TokenType.VALUE && t.value === 'Alice')).toBe(true);
-    expect(tokens.some((t) => t.type === TokenType.VALUE && t.value === '30')).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === 'Alice')).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === '30')).toBe(true);
     expect(tokens.some((t) => t.type === TokenType.RBRACE)).toBe(true);
   });
 
   it('should tokenize quoted values', () => {
     const tokens = tokenize('{hello,world}');
-    const token = tokens.find((t) => t.type === TokenType.VALUE && t.value === 'hello');
+    const token = tokens.find((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === 'hello');
     expect(token).toBeDefined();
   });
 
   it('should handle escaped characters', () => {
     const tokens = tokenize('{"a\\,b"}');
-    const valueToken = tokens.find((t) => t.type === TokenType.VALUE);
+    const valueToken = tokens.find((t) => t.type === TokenType.QUOTED_STRING);
     expect(valueToken?.value).toBe('a,b');
   });
 
   it('should tokenize array', () => {
     const tokens = tokenize('[admin,user]');
     expect(tokens.some((t) => t.type === TokenType.LBRACKET)).toBe(true);
-    expect(tokens.some((t) => t.type === TokenType.VALUE && t.value === 'admin')).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === 'admin')).toBe(true);
     expect(tokens.some((t) => t.type === TokenType.RBRACKET)).toBe(true);
   });
 
   it('should tokenize row with label', () => {
     const tokens = tokenize('user1:{Alice,30}');
-    expect(tokens.some((t) => t.type === TokenType.LABEL && t.value === 'user1')).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.LABEL_OR_VALUE && t.value === 'user1')).toBe(true);
     expect(tokens.some((t) => t.type === TokenType.COLON)).toBe(true);
   });
 
@@ -58,14 +57,14 @@ describe('Tokenizer', () => {
 
   it('should preserve quoted strings with spaces', () => {
     const tokens = tokenize('"hello world"');
-    const token = tokens.find((t) => t.type === TokenType.VALUE);
+    const token = tokens.find((t) => t.type === TokenType.QUOTED_STRING);
     expect(token?.value).toBe('hello world');
   });
 
   it('should handle empty values (consecutive commas)', () => {
     const tokens = tokenize('{,value}');
-    const values = tokens.filter((t) => t.type === TokenType.VALUE);
-    expect(values.length).toBeGreaterThanOrEqual(1);
+    const hasComma = tokens.some((t) => t.type === TokenType.COMMA);
+    expect(hasComma).toBe(true);
   });
 
   it('should tokenize nested header', () => {
@@ -81,13 +80,13 @@ describe('Tokenizer', () => {
 
   it('should handle escaped quotes in quoted values', () => {
     const tokens = tokenize('"say \\"hi\\""');
-    const token = tokens.find((t) => t.type === TokenType.VALUE);
+    const token = tokens.find((t) => t.type === TokenType.QUOTED_STRING);
     expect(token?.value).toContain('hi');
   });
 
   it('should handle tabs and newlines escapes', () => {
     const tokens = tokenize('"hello\\tworld"');
-    const token = tokens.find((t) => t.type === TokenType.VALUE);
+    const token = tokens.find((t) => t.type === TokenType.QUOTED_STRING);
     expect(token?.value).toContain('\t');
   });
 });

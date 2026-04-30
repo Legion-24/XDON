@@ -1,4 +1,3 @@
-import { describe, it, expect } from '@jest/globals';
 import { inferType } from '../src/evaluator';
 
 describe('Type Inference', () => {

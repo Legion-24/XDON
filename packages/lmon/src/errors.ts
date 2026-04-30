@@ -3,7 +3,7 @@ export class LMONParseError extends Error {
 
   public readonly column: number;
 
-  public readonly source?: string;
+  public readonly source: string | undefined;
 
   constructor(
     message: string,

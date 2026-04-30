@@ -1,47 +1,79 @@
-import { describe, it, expect } from '@jest/globals';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { fileURLToPath } from 'url';
 import { parse } from '../src/parser';
 import { stringify } from '../src/stringifier';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const fixturesDir = join(__dirname, 'fixtures');
+interface Fixture {
+  name: string;
+  lmon: string;
+  json: unknown;
+}
 
-const fixtures = [
-  'basic',
-  'no-header',
-  'arrays',
-  'nested',
-  'types',
-  'escaped',
-  'empty-values',
+const FIXTURES: Fixture[] = [
+  {
+    name: 'basic',
+    lmon: '(name,age,active)\nalice:{Alice,30,true}\nbob:{Bob,25,false}\n',
+    json: {
+      alice: { name: 'Alice', age: 30, active: true },
+      bob: { name: 'Bob', age: 25, active: false },
+    },
+  },
+  {
+    name: 'no-header',
+    lmon: '{Alice,30,true}\n{Bob,25,false}\n',
+    json: [
+      ['Alice', 30, true],
+      ['Bob', 25, false],
+    ],
+  },
+  {
+    name: 'arrays',
+    lmon: '(name,tags[],verified)\nalice:{Alice,[admin,developer],true}\nbob:{Bob,[user],false}\n',
+    json: {
+      alice: { name: 'Alice', tags: ['admin', 'developer'], verified: true },
+      bob: { name: 'Bob', tags: ['user'], verified: false },
+    },
+  },
+  {
+    name: 'nested',
+    lmon: '(name,address:(city,zip))\nalice:{Alice,{NYC,10001}}\nbob:{Bob,{LA,90001}}\n',
+    json: {
+      alice: { name: 'Alice', address: { city: 'NYC', zip: '10001' } },
+      bob: { name: 'Bob', address: { city: 'LA', zip: '90001' } },
+    },
+  },
+  {
+    name: 'types',
+    lmon: '(string,integer,float,boolean,null_val)\nexample:{hello,42,3.14,true,null}\n',
+    json: {
+      example: { string: 'hello', integer: 42, float: 3.14, boolean: true, null_val: null },
+    },
+  },
+  {
+    name: 'escaped',
+    lmon: '(name,description)\nitem1:{Widget,"A \\, B, and C"}\nitem2:{Gadget,"Quote: \\"Hello\\""}\n',
+    json: {
+      item1: { name: 'Widget', description: 'A , B, and C' },
+      item2: { name: 'Gadget', description: 'Quote: "Hello"' },
+    },
+  },
+  {
+    name: 'empty-values',
+    lmon: '(name,email,phone)\nuser1:{Alice,,555-1234}\nuser2:{Bob,bob@example.com,}\n',
+    json: {
+      user1: { name: 'Alice', email: '', phone: '555-1234' },
+      user2: { name: 'Bob', email: 'bob@example.com', phone: '' },
+    },
+  },
 ];
 
 describe('Round-trip Integration Tests', () => {
-  fixtures.forEach((fixture) => {
-    it(`should round-trip fixture: ${fixture}`, () => {
-      const lmonPath = join(fixturesDir, `${fixture}.lmon`);
-      const jsonPath = join(fixturesDir, `${fixture}.json`);
-
-      const lmonText = readFileSync(lmonPath, 'utf-8');
-      const expectedJson = JSON.parse(readFileSync(jsonPath, 'utf-8'));
-
-      const parsed = parse(lmonText);
-      expect(parsed).toEqual(expectedJson);
+  FIXTURES.forEach(({ name, lmon, json }) => {
+    it(`should parse fixture to expected JSON: ${name}`, () => {
+      expect(parse(lmon)).toEqual(json);
     });
 
-    it(`should stringify and re-parse fixture: ${fixture}`, () => {
-      const lmonPath = join(fixturesDir, `${fixture}.lmon`);
-      const jsonPath = join(fixturesDir, `${fixture}.json`);
-
-      const lmonText = readFileSync(lmonPath, 'utf-8');
-      const expectedJson = JSON.parse(readFileSync(jsonPath, 'utf-8'));
-
-      const parsed = parse(lmonText);
-      const stringified = stringify(parsed);
-      const reparsed = parse(stringified);
-
+    it(`should stringify and re-parse fixture: ${name}`, () => {
+      const parsed = parse(lmon);
+      const reparsed = parse(stringify(parsed));
       expect(reparsed).toEqual(parsed);
     });
   });
