@@ -21,4 +21,4 @@ export type {
 export type { Token } from './tokenizer.js';
 export type { MacroContext, MacroDefinition, ExpandOptions } from './macro.js';
 
-export const VERSION = '1.0.0-beta.1';
+export const VERSION = '1.0.0-beta.3';

@@ -18,7 +18,7 @@ import {
 
 describe('v1.0: version', () => {
   test('VERSION constant', () => {
-    expect(VERSION).toBe('1.0.0-beta.1');
+    expect(VERSION).toBe('1.0.0-beta.3');
   });
 });
 

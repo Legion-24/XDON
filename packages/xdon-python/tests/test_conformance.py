@@ -23,7 +23,7 @@ from xdon.evaluator import infer_type
 
 # v1.0: version
 def test_version_constant():
-    assert VERSION == "1.0.0-beta.1"
+    assert VERSION == "1.0.0-beta.3"
 
 
 # v1.0: reserved leading characters

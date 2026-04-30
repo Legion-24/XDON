@@ -50,7 +50,7 @@ jobs:
         run: |
           node -e "
           import('./dist/esm/index.js').then(m => {
-            if (m.VERSION !== '1.0.0-beta.1') { console.error('VERSION mismatch:', m.VERSION); process.exit(1); }
+            if (m.VERSION !== '1.0.0-beta.3') { console.error('VERSION mismatch:', m.VERSION); process.exit(1); }
             const out = m.parse('(a)\\n{1}');
             if (JSON.stringify(out) !== '[{\"a\":1}]') { console.error('parse mismatch:', JSON.stringify(out)); process.exit(1); }
             console.log('ESM smoke OK');
@@ -61,7 +61,7 @@ jobs:
         run: |
           node -e "
           const m = require('./dist/cjs/index.cjs');
-          if (m.VERSION !== '1.0.0-beta.1') { console.error('VERSION mismatch:', m.VERSION); process.exit(1); }
+          if (m.VERSION !== '1.0.0-beta.3') { console.error('VERSION mismatch:', m.VERSION); process.exit(1); }
           const out = m.parse('(a)\n{1}');
           if (JSON.stringify(out) !== '[{\"a\":1}]') { console.error('parse mismatch:', JSON.stringify(out)); process.exit(1); }
           console.log('CJS smoke OK');
@@ -108,7 +108,7 @@ jobs:
           /tmp/smoke/bin/pip install dist/*.whl
           /tmp/smoke/bin/python -c "
           from xdon import parse, stringify, VERSION
-          assert VERSION == '1.0.0-beta.1', f'VERSION mismatch: {VERSION}'
+          assert VERSION == '1.0.0-beta.3', f'VERSION mismatch: {VERSION}'
           assert parse('(a)\n{1}') == [{'a': 1}], f'parse mismatch'
           print('Python smoke OK')
           "
@@ -125,6 +125,6 @@ jobs:
           py_version=$(grep '^version' packages/xdon-python/pyproject.toml | sed -E 's/.*"(.+)"/\1/')
           echo "TS:     $ts_version"
           echo "Python: $py_version"
-          # Python uses 1.0.0b1, TS uses 1.0.0-beta.1; verify they agree on the beta ordinal.
-          if [[ "$ts_version" != "1.0.0-beta.1" ]]; then echo "TS version drift"; exit 1; fi
-          if [[ "$py_version" != "1.0.0b1" ]]; then echo "Python version drift"; exit 1; fi
+          # Python uses 1.0.0b3, TS uses 1.0.0-beta.3; verify they agree on the beta ordinal.
+          if [[ "$ts_version" != "1.0.0-beta.3" ]]; then echo "TS version drift"; exit 1; fi
+          if [[ "$py_version" != "1.0.0b3" ]]; then echo "Python version drift"; exit 1; fi
