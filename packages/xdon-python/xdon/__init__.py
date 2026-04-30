@@ -23,7 +23,7 @@ from .parser import (
 )
 from .stringifier import stringify
 
-VERSION = "1.0.0-beta.1"
+VERSION = "1.0.0-beta.3"
 __version__ = VERSION
 
 __all__ = [

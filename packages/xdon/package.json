@@ -1,6 +1,6 @@
 {
   "name": "@legion24/xdon",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "description": "XDON (eXtensible Data Object Notation) — schema-ambient compact text format. 30–40% smaller than JSON for tabular data. Parser, stringifier, JSON bridge, and macro preprocessor.",
   "type": "module",
   "main": "./dist/cjs/index.cjs",
