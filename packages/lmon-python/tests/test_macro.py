@@ -229,6 +229,70 @@ class TestIntegrationWithLMONParsing:
         assert result == [[6, 'Charlie']]
 
 
+class TestSpecDefinedMacros:
+    def test_date_str_returns_iso_date(self):
+        import re
+        result = expand('%_DATE_STR')
+        assert re.match(r'^\d{4}-\d{2}-\d{2}$', result)
+
+    def test_timestamp_returns_unix_seconds(self):
+        import time
+        result = expand('%_TIMESTAMP')
+        ts = int(result)
+        assert ts > 0
+        assert ts < time.time() + 1
+
+    def test_datetime_str_returns_iso_8601(self):
+        import re
+        result = expand('%_DATETIME_STR')
+        assert re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', result)
+
+    def test_day_str_returns_day_name(self):
+        result = expand('%_DAY_STR')
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        assert result in days
+
+    def test_time_str_returns_hh_mm_ss(self):
+        import re
+        result = expand('%_TIME_STR')
+        assert re.match(r'^\d{2}:\d{2}:\d{2}$', result)
+
+    def test_uuid_generates_uuid_v4(self):
+        import re
+        result = expand('%_UUID')
+        assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', result, re.I)
+
+    def test_env_reads_environment_variable(self):
+        import os
+        os.environ['TEST_VAR_MACRO'] = 'test_value_123'
+        result = expand('%_ENV(TEST_VAR_MACRO)')
+        assert result == 'test_value_123'
+
+    def test_env_returns_empty_for_undefined(self):
+        result = expand('%_ENV(UNDEFINED_VAR_THAT_SHOULD_NOT_EXIST_XYZ)')
+        assert result == ''
+
+    def test_spec_macros_in_simple_form(self):
+        import re
+        result = expand('%_UUID')
+        assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', result, re.I)
+
+    def test_spec_macro_in_expression(self):
+        result = expand('%{1+1}')
+        assert result == '2'
+
+    def test_user_macro_overrides_spec_macro(self):
+        input_text = '%_DATE_STR = "custom"\n%_DATE_STR'
+        result = expand(input_text)
+        assert result == 'custom'
+
+    def test_spec_macros_with_user_defined_macros(self):
+        import re
+        input_text = '%prefix = "ID:"\n%prefix%_UUID'
+        result = expand(input_text)
+        assert re.match(r'^ID:[0-9a-f-]+$', result, re.I)
+
+
 class TestEdgeCases:
     def test_escapes_in_definition_body(self):
         input_text = '%msg = "hello\\"world"\n%msg'

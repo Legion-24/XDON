@@ -265,6 +265,69 @@ describe('macro: integration with LMON parsing', () => {
   });
 });
 
+describe('macro: spec-defined macros', () => {
+  test('_DATE_STR returns YYYY-MM-DD', () => {
+    const result = expand('%_DATE_STR');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  test('_TIMESTAMP returns Unix seconds', () => {
+    const result = expand('%_TIMESTAMP');
+    const ts = parseInt(result);
+    expect(ts).toBeGreaterThan(0);
+    expect(ts).toBeLessThan(Date.now() / 1000 + 1);
+  });
+
+  test('_DATETIME_STR returns ISO 8601', () => {
+    const result = expand('%_DATETIME_STR');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  });
+
+  test('_DAY_STR returns day name', () => {
+    const result = expand('%_DAY_STR');
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    expect(days).toContain(result);
+  });
+
+  test('_TIME_STR returns HH:MM:SS', () => {
+    const result = expand('%_TIME_STR');
+    expect(result).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+  });
+
+  test('_UUID generates UUID v4', () => {
+    const result = expand('%_UUID');
+    expect(result).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  test('_ENV macro is available', () => {
+    const input = '%_ENV(PATH)';
+    const result = expand(input);
+    expect(result).toBeTruthy();
+  });
+
+  test('spec macros in simple form', () => {
+    const result = expand('%_UUID');
+    expect(result).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  test('spec macro in expression with timestamp', () => {
+    const result = expand('%{1+1}');
+    expect(result).toBe('2');
+  });
+
+  test('user macro overrides spec macro', () => {
+    const input = '%_DATE_STR = "custom"\n%_DATE_STR';
+    const result = expand(input);
+    expect(result).toBe('custom');
+  });
+
+  test('spec macros with user-defined macros', () => {
+    const input = '%prefix = "ID:"\n%prefix%_UUID';
+    const result = expand(input);
+    expect(result).toMatch(/^ID:[0-9a-f-]+$/i);
+  });
+});
+
 describe('macro: edge cases', () => {
   test('escapes in definition body', () => {
     const input = '%msg = "hello\\"world"\n%msg';

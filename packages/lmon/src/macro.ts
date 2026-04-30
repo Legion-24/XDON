@@ -194,7 +194,8 @@ class ExprEvaluator {
 }
 
 export function expand(input: string, options?: ExpandOptions): string {
-  const context: MacroContext = new Map(options?.initialContext ?? []);
+  const specMacros = buildSpecMacros();
+  const context: MacroContext = new Map([...specMacros, ...(options?.initialContext ?? [])]);
   const strict = options?.strict ?? true;
   const maxDepth = options?.maxDepth ?? 16;
 
@@ -254,6 +255,47 @@ function decodeEscapes(s: string): string {
     .replace(/\\\\/g, '\\')
     .replace(/\\n/g, '\n')
     .replace(/\\t/g, '\t');
+}
+
+function generateUUID(): string {
+  const chars = '0123456789abcdef';
+  let uuid = '';
+  for (let i = 0; i < 36; i++) {
+    if (i === 8 || i === 13 || i === 18 || i === 23) {
+      uuid += '-';
+    } else if (i === 14) {
+      uuid += '4';
+    } else if (i === 19) {
+      uuid += chars[Math.floor(Math.random() * 16) & 0x3 | 0x8];
+    } else {
+      uuid += chars[Math.floor(Math.random() * 16)];
+    }
+  }
+  return uuid;
+}
+
+function buildSpecMacros(): MacroContext {
+  const now = new Date();
+
+  const padZero = (n: number): string => String(n).padStart(2, '0');
+
+  const dateStr: string = now.toISOString().split('T')[0] || '';
+  const timeStr: string = `${padZero(now.getHours())}:${padZero(now.getMinutes())}:${padZero(now.getSeconds())}`;
+  const datetimeStr: string = now.toISOString();
+
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayStr: string = days[now.getDay()] || 'Sunday';
+
+  const context: MacroContext = new Map();
+  context.set('_DATE_STR', { body: dateStr, params: null, sourceLine: 0 });
+  context.set('_TIMESTAMP', { body: String(Math.floor(now.getTime() / 1000)), params: null, sourceLine: 0 });
+  context.set('_DATETIME_STR', { body: datetimeStr, params: null, sourceLine: 0 });
+  context.set('_DAY_STR', { body: dayStr, params: null, sourceLine: 0 });
+  context.set('_TIME_STR', { body: timeStr, params: null, sourceLine: 0 });
+  context.set('_UUID', { body: generateUUID(), params: null, sourceLine: 0 });
+  context.set('_ENV', { body: '', params: ['VAR'], sourceLine: 0 });
+
+  return context;
 }
 
 function expandLine(
@@ -368,24 +410,33 @@ function expandLine(
           );
         }
 
-        let body = def.body;
+        let substituted: string;
 
-        if (def.params && args) {
-          for (let j = 0; j < def.params.length; j++) {
-            const placeholder = `{${def.params[j]}}`;
-            const argVal = args[j] || '';
-            body = body.replaceAll(placeholder, argVal);
+        if (name === '_ENV' && args && args.length > 0) {
+          const envVarName = args[0] || '';
+          const processEnv = (globalThis as any).process?.env;
+          const envValue = (processEnv && typeof processEnv === 'object' && envVarName in processEnv) ? processEnv[envVarName] : '';
+          substituted = envValue || '';
+        } else {
+          let body = def.body;
+
+          if (def.params && args) {
+            for (let j = 0; j < def.params.length; j++) {
+              const placeholder = `{${def.params[j]}}`;
+              const argVal = args[j] || '';
+              body = body.replaceAll(placeholder, argVal);
+            }
           }
-        }
 
-        const substituted = expandLine(
-          body,
-          context,
-          strict,
-          maxDepth,
-          lineNum,
-          depth + 1,
-        );
+          substituted = expandLine(
+            body,
+            context,
+            strict,
+            maxDepth,
+            lineNum,
+            depth + 1,
+          );
+        }
 
         result += substituted;
         i = nextIdx;

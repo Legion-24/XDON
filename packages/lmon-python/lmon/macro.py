@@ -1,4 +1,7 @@
+import os
+import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
@@ -174,7 +177,8 @@ def expand(input_text: str, options: Optional[ExpandOptions] = None) -> str:
     if options is None:
         options = ExpandOptions()
 
-    context: MacroContext = dict(options.initial_context or {})
+    spec_macros = build_spec_macros()
+    context: MacroContext = {**spec_macros, **(options.initial_context or {})}
     strict = options.strict
     max_depth = options.max_depth
 
@@ -224,6 +228,30 @@ def decode_escapes(s: str) -> str:
         .replace("\\n", "\n")
         .replace("\\t", "\t")
     )
+
+
+def build_spec_macros() -> MacroContext:
+    now = datetime.now()
+
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M:%S")
+    datetime_str = now.isoformat() + "Z"
+
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    day_str = days[now.weekday()]
+
+    timestamp = str(int(now.timestamp()))
+    uuid_str = str(uuid.uuid4())
+
+    return {
+        "_DATE_STR": MacroDefinition(body=date_str, params=None, source_line=0),
+        "_TIMESTAMP": MacroDefinition(body=timestamp, params=None, source_line=0),
+        "_DATETIME_STR": MacroDefinition(body=datetime_str, params=None, source_line=0),
+        "_DAY_STR": MacroDefinition(body=day_str, params=None, source_line=0),
+        "_TIME_STR": MacroDefinition(body=time_str, params=None, source_line=0),
+        "_UUID": MacroDefinition(body=uuid_str, params=None, source_line=0),
+        "_ENV": MacroDefinition(body="", params=["VAR"], source_line=0),
+    }
 
 
 def expand_line(
@@ -320,14 +348,19 @@ def expand_line(
                         name,
                     )
 
-                body = def_macro.body
+                if name == "_ENV" and args and len(args) > 0:
+                    env_var_name = args[0]
+                    env_value = os.environ.get(env_var_name, "")
+                    substituted = env_value
+                else:
+                    body = def_macro.body
 
-                if def_macro.params and args:
-                    for j, param in enumerate(def_macro.params):
-                        placeholder = f"{{{param}}}"
-                        body = body.replace(placeholder, args[j])
+                    if def_macro.params and args:
+                        for j, param in enumerate(def_macro.params):
+                            placeholder = f"{{{param}}}"
+                            body = body.replace(placeholder, args[j])
 
-                substituted = expand_line(body, context, strict, max_depth, line_num, depth + 1)
+                    substituted = expand_line(body, context, strict, max_depth, line_num, depth + 1)
 
                 result += substituted
                 i = next_idx
