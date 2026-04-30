@@ -1,8 +1,8 @@
 {
-  "name": "lmon-monorepo",
+  "name": "xcon-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Language Model Object Notation - monorepo for JS/TS and Python parsers",
+  "description": "XCON (eXtensible Compact Object Notation) — schema-ambient structured data format. Monorepo for JS/TS and Python parsers.",
   "type": "module",
   "scripts": {
     "build": "turbo build",

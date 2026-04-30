@@ -21,7 +21,7 @@ importers:
         specifier: ^2.0.0
         version: 2.9.6
 
-  packages/lmon:
+  packages/xcon:
     devDependencies:
       '@types/jest':
         specifier: ^29.5.11

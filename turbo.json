@@ -3,7 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "lmon/**/*.py"],
+      "outputs": ["dist/**", "xcon/**/*.py"],
       "cache": true
     },
     "test": {
